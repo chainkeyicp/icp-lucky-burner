@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ICP Lucky Burner</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="fire">🔥</span> ICP Lucky Burner
+    </div>
+    <div class="nav-links">
+      <a href="#lottery"  class="nav-link active" data-page="lottery">Lottery</a>
+      <a href="#wallet"   class="nav-link"         data-page="wallet">Wallet</a>
+      <a href="#winners"  class="nav-link"         data-page="winners">Winners</a>
+      <a href="#rules"    class="nav-link"         data-page="rules">Rules</a>
+      <a href="https://github.com/chainkeyicp/icp-lucky-burner" target="_blank" rel="noopener" class="nav-link nav-github" title="View on GitHub">
+        <svg height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </div>
+    <div class="nav-auth">
+      <div id="auth-section">
+        <button id="login-btn" class="btn btn-primary">Login with Internet Identity</button>
+        <button id="dev-login-btn" class="btn btn-warning" style="display:none">⚡ Dev Login (local)</button>
+      </div>
+      <div id="user-section" class="hidden">
+        <span id="user-principal" class="principal-badge"></span>
+        <button id="logout-btn" class="btn btn-ghost">Logout</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- PRELOADER -->
+  <div id="preloader" class="preloader">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- PAGES -->
+  <main class="main-content" id="main-content" style="visibility:hidden">
+
+    <!-- ── LOTTERY PAGE ── -->
+    <section id="page-lottery" class="page active">
+
+      <!-- Day banner -->
+      <div id="day-banner" class="day-banner normal">
+        <div class="day-info">
+          <span id="day-label" class="day-label">Normal Day</span>
+          <span id="day-number" class="day-number">Day 1 of 10</span>
+        </div>
+        <div class="countdown">
+          <span class="countdown-label">Round ends in</span>
+          <span id="countdown" class="countdown-time">24:00:00</span>
+        </div>
+      </div>
+
+      <!-- Pool cards -->
+      <div class="pools-grid">
+        <div class="pool-card today">
+          <div class="pool-label">Today's Winner Gets</div>
+          <div id="pool-daily" class="pool-amount">0.0000 ICP</div>
+          <div class="pool-sub" id="daily-sub">—</div>
+        </div>
+        <div class="pool-card mystery-small">
+          <div class="pool-label">🔮 Small Mystery</div>
+          <div id="pool-small" class="pool-amount">0.0000 ICP</div>
+          <div id="small-sub" class="pool-sub">accumulating</div>
+        </div>
+        <div class="pool-card mystery-medium">
+          <div class="pool-label">✨ Medium Mystery</div>
+          <div id="pool-medium" class="pool-amount">0.0000 ICP</div>
+          <div id="medium-sub" class="pool-sub">accumulating</div>
+        </div>
+        <div class="pool-card mystery-large">
+          <div class="pool-label">💎 Large Mystery</div>
+          <div id="pool-large" class="pool-amount">0.0000 ICP</div>
+          <div id="large-sub" class="pool-sub">accumulating</div>
+        </div>
+      </div>
+
+      <!-- Stats bar -->
+      <div class="stats-bar">
+        <div class="stat-item">
+          <span class="stat-label">⚙️ Cycles Funded</span>
+          <span id="stat-burned" class="stat-val">—</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">🏆 Rounds Completed</span>
+          <span id="stat-rounds" class="stat-val">—</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">🎟 Total Tickets Sold</span>
+          <span id="stat-tickets" class="stat-val">—</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">💰 Total Paid Out</span>
+          <span id="stat-payout" class="stat-val">—</span>
+        </div>
+      </div>
+
+      <!-- Buy tickets -->
+      <div class="ticket-section">
+        <div class="ticket-card">
+          <h2>Buy Tickets</h2>
+          <p class="ticket-price">0.1 ICP per ticket &nbsp;·&nbsp; max 10 per wallet</p>
+
+          <div id="login-prompt" class="login-prompt">
+            <p>Login with Internet Identity to participate</p>
+            <button class="btn btn-primary" onclick="document.getElementById('login-btn').click()">Login</button>
+          </div>
+
+          <div id="buy-section" class="hidden">
+            <div class="my-tickets-info">
+              <span>Your tickets this round:</span>
+              <strong id="my-tickets">0 / 10</strong>
+            </div>
+            <div class="my-tickets-info" id="win-chance-row" style="display:none">
+              <span>Your win chance:</span>
+              <strong id="win-chance" class="win-chance">—</strong>
+            </div>
+            <div class="ticket-selector">
+              <button class="qty-btn" id="qty-minus">−</button>
+              <span id="qty-display" class="qty-display">1</span>
+              <button class="qty-btn" id="qty-plus">+</button>
+            </div>
+            <div class="ticket-cost">
+              Total: <strong id="ticket-cost">0.1 ICP</strong>
+            </div>
+            <button id="buy-btn" class="btn btn-primary btn-lg">Buy Tickets</button>
+            <p id="buy-msg" class="buy-msg"></p>
+          </div>
+
+          <div class="tickets-sold-info">
+            <span>Total tickets this round:</span>
+            <strong id="tickets-sold">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live ticket feed -->
+      <div class="live-feed-card">
+        <div class="live-feed-header">
+          <span class="live-dot"></span> Live Tickets This Round
+        </div>
+        <div id="live-feed" class="live-feed-list">
+          <div class="live-feed-empty">No tickets yet this round</div>
+        </div>
+      </div>
+
+      <!-- Dev panel -->
+      <div id="dev-panel" class="dev-panel hidden">
+        <div class="dev-label">DEV MODE</div>
+        <button id="dev-end-day" class="btn btn-warning">⚡ Simulate End of Day</button>
+        <span id="dev-msg" class="dev-msg"></span>
+      </div>
+
+    </section>
+
+    <!-- ── WALLET PAGE ── -->
+    <section id="page-wallet" class="page hidden">
+      <div class="wallet-card">
+        <h2>Your Wallet</h2>
+
+        <div id="wallet-login-prompt" class="login-prompt">
+          <p>Login to view your wallet</p>
+          <button class="btn btn-primary" onclick="document.getElementById('login-btn').click()">Login</button>
+        </div>
+
+        <div id="wallet-content" class="hidden">
+          <div class="wallet-row">
+            <span class="wallet-label">Principal ID</span>
+            <div class="principal-row">
+              <code id="wallet-principal" class="principal-full"></code>
+              <button class="btn btn-ghost btn-sm" id="copy-principal">Copy</button>
+            </div>
+          </div>
+          <div class="wallet-row">
+            <span class="wallet-label">ICP Balance</span>
+            <span id="wallet-balance" class="wallet-balance">— ICP</span>
+            <button class="btn btn-ghost btn-sm" id="refresh-balance">↻</button>
+          </div>
+
+          <hr class="divider" />
+
+          <div class="send-section">
+            <h3>Send ICP</h3>
+            <div class="form-group">
+              <label>Destination Principal</label>
+              <input type="text" id="send-to" placeholder="xxxxx-xxxxx-...-xxxxx" class="input" />
+            </div>
+            <div class="form-group">
+              <label>Amount (ICP)</label>
+              <input type="number" id="send-amount" placeholder="0.00" step="0.01" min="0.01" class="input" />
+            </div>
+            <button id="send-btn" class="btn btn-primary">Send ICP</button>
+            <p id="send-msg" class="send-msg"></p>
+          </div>
+
+          <hr class="divider" />
+
+          <div class="my-history-section">
+            <h3>My Round History</h3>
+            <div id="my-history-list" class="my-history-list">
+              <div class="my-history-empty">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── WINNERS PAGE ── -->
+    <section id="page-winners" class="page hidden">
+      <div class="winners-section">
+        <h2>Winner History</h2>
+        <p class="winners-sub">All payouts are verified on-chain. Click a block index to verify.</p>
+        <div id="winners-table-wrap">
+          <table class="winners-table">
+            <thead>
+              <tr>
+                <th>Round</th>
+                <th>Winner</th>
+                <th>Daily Prize</th>
+                <th>Mysteries</th>
+                <th>Block</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="winners-tbody">
+              <tr><td colspan="6" class="empty-state">No draws yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <button id="load-more-winners" class="btn btn-ghost hidden">Load more</button>
+      </div>
+    </section>
+
+    <!-- ── RULES PAGE ── -->
+    <section id="page-rules" class="page hidden">
+      <div class="rules-section">
+        <h2>How It Works</h2>
+
+        <div class="rules-card">
+          <h3>The Basics</h3>
+          <ul>
+            <li>Every day one winner is drawn from all ticket holders for the <strong>Daily Prize</strong>.</li>
+            <li>Tickets cost <strong>0.1 ICP</strong> each · maximum <strong>10 tickets per wallet per day</strong>.</li>
+            <li>Winnings are sent automatically to your principal — no claiming needed.</li>
+            <li>The more tickets you buy, the higher your chance of winning.</li>
+          </ul>
+        </div>
+
+        <div class="rules-card">
+          <h3>Mystery Pools</h3>
+          <p class="rules-intro">In addition to the Daily Prize, three mystery pools accumulate over time. After each daily draw, the canister rolls the dice — a mystery can drop any day, without warning.</p>
+          <div class="mystery-rules-grid">
+            <div class="mystery-rule small">
+              <div class="mr-icon">🔮</div>
+              <div class="mr-name">Small Mystery</div>
+              <div class="mr-chance">25% chance per day</div>
+              <div class="mr-note">Drops on average every ~4 days</div>
+            </div>
+            <div class="mystery-rule medium">
+              <div class="mr-icon">✨</div>
+              <div class="mr-name">Medium Mystery</div>
+              <div class="mr-chance">10% chance per day</div>
+              <div class="mr-note">Drops on average every ~10 days</div>
+            </div>
+            <div class="mystery-rule large">
+              <div class="mr-icon">💎</div>
+              <div class="mr-name">Large Mystery</div>
+              <div class="mr-chance">3% chance per day</div>
+              <div class="mr-note">Drops on average every ~33 days</div>
+            </div>
+          </div>
+          <p class="dist-note">Each mystery has a separate winner draw — you can win the daily prize and a mystery on the same day. Mysteries only drop after reaching a minimum pool size.</p>
+        </div>
+
+        <div class="rules-card">
+          <h3>Prize Distribution</h3>
+          <p class="rules-intro">Every ticket purchase is split immediately across the pools — you can watch them grow in real time.</p>
+          <div class="dist-bar" style="margin-bottom:1rem">
+            <div class="bar-seg winner"   style="width:54%">54% Daily</div>
+            <div class="bar-seg bigpool"  style="width:16%">16% 🔮</div>
+            <div class="bar-seg jackpool" style="width:11%">11% ✨</div>
+            <div class="bar-seg mystery-l" style="width:7%">7% 💎</div>
+            <div class="bar-seg burn"     style="width:10%">10% ⚙️</div>
+            <div class="bar-seg dev"      style="width:2%">2%</div>
+          </div>
+          <ul>
+            <li><strong>54%</strong> → Daily prize pool (winner drawn each day)</li>
+            <li><strong>16%</strong> → Small mystery pool 🔮</li>
+            <li><strong>11%</strong> → Medium mystery pool ✨</li>
+            <li><strong>7%</strong> → Large mystery pool 💎</li>
+            <li><strong>10%</strong> → Converted to cycles ⚙️ (keeps the app running autonomously)</li>
+            <li><strong>2%</strong> → Developer fee</li>
+          </ul>
+        </div>
+
+        <div class="rules-card">
+          <h3>Transparency & Fairness</h3>
+          <ul>
+            <li>Winner selection uses ICP's native on-chain randomness — threshold BLS signatures, not manipulable by anyone.</li>
+            <li>All payouts are recorded on the ICP ledger with a block index you can verify publicly.</li>
+            <li>10% of every ticket funds the canisters via the Cycles Minting Canister — ICP is burned from supply in the process.</li>
+            <li>Smart contracts run fully on-chain — no server, no admin can alter results or access funds.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Winner detail modal -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <h3 id="modal-title">Round</h3>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

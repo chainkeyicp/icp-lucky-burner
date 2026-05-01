@@ -1,0 +1,17 @@
+# Claude Code internal
+.claude/
+
+# dfx build artifacts
+.dfx/
+.mops/
+
+# Frontend build output
+src/frontend/dist/
+src/frontend/node_modules/
+
+# Environment files (contain canister IDs for local dev)
+src/frontend/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
