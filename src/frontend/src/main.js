@@ -94,6 +94,7 @@ async function connectWithIdentity(id) {
   document.getElementById("wallet-content").classList.remove("hidden");
   document.getElementById("wallet-principal").textContent = principal;
   refreshBalance();
+  checkWinnerNotifications();
 }
 
 document.getElementById("login-btn").addEventListener("click", async () => {
@@ -330,29 +331,7 @@ async function renderRound(s) {
   if (lastRoundId !== 0 && newRoundId !== lastRoundId) {
     await refreshWinners();
     await refreshBalance();
-    if (identity && lotteryActor) {
-      try {
-        const history = await lotteryActor.getWinnerHistoryPaged(0, 1);
-        if (history.length > 0) {
-          const last = history[0];
-          const myAddr = identity.getPrincipal().toText();
-          if (Number(last.roundId) === lastRoundId) {
-            if (last.winner.toText() === myAddr) {
-              toast(`🏆 You won ${e8sToIcp(last.amountWon)} ICP (daily)!`, "win");
-            }
-            if (last.smallWinner.length > 0 && last.smallWinner[0].toText() === myAddr) {
-              toast(`🔮 Small Mystery! You won ${e8sToIcp(last.smallAmt)} ICP!`, "win");
-            }
-            if (last.mediumWinner.length > 0 && last.mediumWinner[0].toText() === myAddr) {
-              toast(`✨ Medium Mystery! You won ${e8sToIcp(last.mediumAmt)} ICP!`, "win");
-            }
-            if (last.largeWinner.length > 0 && last.largeWinner[0].toText() === myAddr) {
-              toast(`💎 LARGE MYSTERY! You won ${e8sToIcp(last.largeAmt)} ICP!`, "win");
-            }
-          }
-        }
-      } catch (e) {}
-    }
+    await checkWinnerNotifications();
   }
   lastRoundId = newRoundId;
 
@@ -403,6 +382,36 @@ async function renderRound(s) {
 
   window._roundEnd  = Number(s.roundEnd);
   window._isDevMode = s.isDevMode;
+}
+
+async function checkWinnerNotifications() {
+  if (!identity || !lotteryActor) return;
+  try {
+    const myAddr = identity.getPrincipal().toText();
+    const rows = await lotteryActor.getWinnerHistoryPaged(0, WINNERS_PAGE);
+    for (const record of rows.reverse()) {
+      notifyIfWinner(record, "daily", record.winner, record.amountWon, `You won ${e8sToIcp(record.amountWon)} ICP (daily)!`, myAddr);
+      if (record.smallWinner.length > 0) {
+        notifyIfWinner(record, "small", record.smallWinner[0], record.smallAmt, `Small Mystery! You won ${e8sToIcp(record.smallAmt)} ICP!`, myAddr);
+      }
+      if (record.mediumWinner.length > 0) {
+        notifyIfWinner(record, "medium", record.mediumWinner[0], record.mediumAmt, `Medium Mystery! You won ${e8sToIcp(record.mediumAmt)} ICP!`, myAddr);
+      }
+      if (record.largeWinner.length > 0) {
+        notifyIfWinner(record, "large", record.largeWinner[0], record.largeAmt, `Large Mystery! You won ${e8sToIcp(record.largeAmt)} ICP!`, myAddr);
+      }
+    }
+  } catch (e) {
+    console.error("checkWinnerNotifications:", e);
+  }
+}
+
+function notifyIfWinner(record, prize, winner, amount, message, myAddr) {
+  if (winner.toText() !== myAddr || BigInt(amount) === 0n) return;
+  const key = `winner_toast:${myAddr}:${record.roundId}:${prize}`;
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, "1");
+  toast(message, "win");
 }
 
 function mysteryStatusText(amount, min, chance) {
