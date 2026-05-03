@@ -5,6 +5,7 @@ import { Principal } from "@icp-sdk/core/principal";
 import { lotteryIdl }  from "./idl/lottery.js";
 import { treasuryIdl } from "./idl/treasury.js";
 import { ledgerIdl }   from "./idl/ledger.js";
+import { BUILD_INFO } from "./build-info.js";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ async function initAsync() {
   refreshLastWinner();
   refreshStats();
   if (activePage() === "rules") refreshTransparency();
+  renderBuildVerification();
 
   setInterval(async () => {
     await refreshRound();
@@ -297,6 +299,25 @@ async function getTopUpBaseline() {
   } catch {
     return null;
   }
+}
+
+function renderBuildVerification() {
+  setText("build-git-commit", BUILD_INFO.gitCommit);
+  const commitLink = document.getElementById("build-commit-link");
+  if (commitLink) {
+    commitLink.href = `${BUILD_INFO.githubUrl}/tree/${BUILD_INFO.gitCommit}`;
+    commitLink.textContent = "Open source at this commit";
+  }
+
+  const tbody = document.getElementById("build-canisters-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = Object.entries(BUILD_INFO.canisters).map(([name, info]) => `
+    <tr>
+      <td>${name}</td>
+      <td><code>${info.id}</code></td>
+      <td><code>${info.moduleHash}</code></td>
+    </tr>
+  `).join("");
 }
 
 function renderPurchaseReceipt(purchasedQty, message) {

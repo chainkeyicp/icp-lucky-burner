@@ -43,3 +43,51 @@ dfx canister call lottery setDevMode '(false)'
 ```bash
 dfx deploy --network ic
 ```
+
+## Build & verification
+
+Production:
+
+- Website: https://luckyburner.fun/
+- Repository: https://github.com/chainkeyicp/icp-lucky-burner
+- Current published commit: `0ea92f232804`
+
+Canisters:
+
+| Canister | ID | Live module hash |
+| --- | --- | --- |
+| lottery | `m3n4c-3qaaa-aaaal-qw55a-cai` | `0x06363d1e7ce7287761d2f12fdb711acd184e44998df687a08370523f71eda6c8` |
+| treasury | `msox6-nyaaa-aaaal-qw54q-cai` | `0xa17d9ff20c5b052304d3b613ba3524002cb3664d959722363a3ca9eaf161f39b` |
+| frontend | `m4m2w-wiaaa-aaaal-qw55q-cai` | `0x865eb25df5a6d857147e078bb33c727797957247f7af2635846d65c5397b36a6` |
+
+Check the live module hashes:
+
+```bash
+export DFX_WARNING=-mainnet_plaintext_identity
+dfx canister --network ic status m3n4c-3qaaa-aaaal-qw55a-cai
+dfx canister --network ic status msox6-nyaaa-aaaal-qw54q-cai
+dfx canister --network ic status m4m2w-wiaaa-aaaal-qw55q-cai
+```
+
+Rebuild from the published commit:
+
+```bash
+git clone https://github.com/chainkeyicp/icp-lucky-burner.git
+cd icp-lucky-burner
+git checkout 0ea92f232804
+cd src/frontend
+npm ci
+cd ../..
+dfx build --network ic
+```
+
+Generate local build hashes:
+
+```bash
+sha256sum .dfx/ic/canisters/lottery/lottery.wasm
+sha256sum .dfx/ic/canisters/treasury/treasury.wasm
+sha256sum .dfx/ic/canisters/frontend/frontend.wasm.gz
+find src/frontend/dist -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum
+```
+
+The GitHub Actions workflow `.github/workflows/verify-build.yml` also builds the project and uploads `build-hashes.txt` as an artifact for each run. Module hashes shown by `dfx canister status` are the IC-installed module hashes; local SHA-256 build hashes are a reproducibility aid and may require the same dfx/toolchain versions to match exactly.

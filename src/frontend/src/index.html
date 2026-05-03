@@ -408,6 +408,33 @@
         </div>
 
         <div class="rules-card">
+          <h3>Build & Verification</h3>
+          <p class="rules-intro">Compare the open-source commit and live canister module hashes with what is deployed on-chain.</p>
+          <div class="verification-head">
+            <div>
+              <span class="verification-label">Git commit</span>
+              <code id="build-git-commit">Loading...</code>
+            </div>
+            <a id="build-commit-link" class="last-winner-link" href="#" target="_blank" rel="noopener">Open source</a>
+          </div>
+          <div class="settlement-log-wrap">
+            <table class="settlement-log-table verification-table">
+              <thead>
+                <tr>
+                  <th>Canister</th>
+                  <th>ID</th>
+                  <th>Live module hash</th>
+                </tr>
+              </thead>
+              <tbody id="build-canisters-tbody">
+                <tr><td colspan="3" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="dist-note">Run the verification commands in the README to rebuild from this commit and compare hashes with IC canister status.</p>
+        </div>
+
+        <div class="rules-card">
           <h3>Transparency & Fairness</h3>
           <ul>
             <li>Winner selection uses ICP's native on-chain randomness — threshold BLS signatures, not manipulable by anyone.</li>

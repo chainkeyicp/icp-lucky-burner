@@ -1035,6 +1035,36 @@ body {
 .settlement-log-table tr:last-child td {
   border-bottom: 0;
 }
+.verification-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.verification-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: .25rem;
+}
+.verification-head code,
+.verification-table code {
+  font-size: .74rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.verification-table td:nth-child(3) {
+  max-width: 360px;
+}
+@media (max-width: 640px) {
+  .verification-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 
 .mystery-rules-grid {
   display: grid;

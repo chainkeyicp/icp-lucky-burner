@@ -1,0 +1,44 @@
+name: Verify Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dfx
+        uses: dfinity/setup-dfx@main
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Build canisters
+        run: dfx build --network ic
+
+      - name: Write build hashes
+        run: |
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "lottery_wasm_sha256=$(sha256sum .dfx/ic/canisters/lottery/lottery.wasm | awk '{print $1}')"
+            echo "treasury_wasm_sha256=$(sha256sum .dfx/ic/canisters/treasury/treasury.wasm | awk '{print $1}')"
+            echo "frontend_wasm_gz_sha256=$(sha256sum .dfx/ic/canisters/frontend/frontend.wasm.gz | awk '{print $1}')"
+            echo "frontend_dist_sha256=$(find src/frontend/dist -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          } | tee build-hashes.txt
+
+      - name: Upload build hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-hashes
+          path: build-hashes.txt
