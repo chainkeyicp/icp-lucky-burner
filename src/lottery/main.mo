@@ -16,7 +16,7 @@ import Cycles "mo:base/ExperimentalCycles";
 
 import Treasury "canister:treasury";
 
-actor Lottery {
+persistent actor Lottery {
   stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
 
   transient let TICKET_PRICE_E8S : Nat64 = 10_000_000; // 0.1 ICP
@@ -155,16 +155,16 @@ actor Lottery {
 
   // ── Mutable state ──────────────────────────────────────────────────────────
 
-  var tickets : HashMap.HashMap<Principal, Nat> =
+  transient var tickets : HashMap.HashMap<Principal, Nat> =
     HashMap.fromIter(ticketEntries.vals(), 16, Principal.equal, Principal.hash);
 
-  var ticketBuf : Buffer.Buffer<Principal> = do {
+  transient var ticketBuf : Buffer.Buffer<Principal> = do {
     let b = Buffer.Buffer<Principal>(100);
     for (p in ticketPoolArr.vals()) b.add(p);
     b
   };
 
-  var timerId : ?Timer.TimerId = null;
+  transient var timerId : ?Timer.TimerId = null;
 
   // ── Upgrade hooks ──────────────────────────────────────────────────────────
 

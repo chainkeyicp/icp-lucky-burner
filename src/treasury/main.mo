@@ -10,7 +10,7 @@ import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 import Cycles "mo:base/ExperimentalCycles";
 
-actor Treasury {
+persistent actor Treasury {
   stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
 
   // ── Canister IDs ───────────────────────────────────────────────────────────
