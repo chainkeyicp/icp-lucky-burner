@@ -82,6 +82,8 @@ actor Treasury {
     lastCmcError           : Text;
     lastTopUpAt            : Int;
     lastTopUpAmount        : Nat64;
+    frontendCyclesKnown    : Nat;
+    frontendCyclesUpdatedAt : Int;
     lastSettleCyclesBefore : Nat;
     lastSettleCyclesAfter  : Nat;
     lastSettleCyclesDelta  : Int;
@@ -109,6 +111,14 @@ actor Treasury {
     lastPayoutNote         : Text;
   };
 
+  public type FundingStats = {
+    samples                : Nat;
+    avgCyclesFunded        : Nat;
+    totalCyclesFunded      : Nat;
+    frontendCyclesKnown    : Nat;
+    frontendCyclesUpdatedAt : Int;
+  };
+
   // ── Stable state ───────────────────────────────────────────────────────────
 
   stable var dailyPool       : Nat64 = 0;
@@ -123,6 +133,9 @@ actor Treasury {
   stable var lastCmcError    : Text = "none";
   stable var lastTopUpAt     : Int = 0;
   stable var lastTopUpAmount : Nat64 = 0;
+  stable var frontendCyclesKnown : Nat = 0;
+  stable var frontendCyclesUpdatedAt : Int = 0;
+  stable var topUpCycleHistory : [(Int, Nat)] = [];
   stable var lastSettleCyclesBefore : Nat = 0;
   stable var lastSettleCyclesAfter  : Nat = 0;
   stable var lastPayoutError : Text = "none";
@@ -233,10 +246,20 @@ actor Treasury {
               canister_id = canisterId;
             });
             switch cmcRes {
-              case (#Ok(_))  {
+              case (#Ok(cyclesMinted))  {
                 lastCmcError := "ok";
                 lastTopUpAt := Time.now();
                 lastTopUpAmount := amount;
+                recordTopUpCycles(cyclesMinted);
+                switch frontendPrincipal {
+                  case (?fp) {
+                    if (Principal.equal(canisterId, fp)) {
+                      frontendCyclesKnown += cyclesMinted;
+                      frontendCyclesUpdatedAt := lastTopUpAt;
+                    };
+                  };
+                  case null {};
+                };
                 return true;
               };
               case (#Err(e)) {
@@ -517,6 +540,33 @@ actor Treasury {
     transferHistory := keepLast<TransferRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
   };
 
+  func recordTopUpCycles(cyclesMinted : Nat) {
+    if (cyclesMinted == 0) return;
+    let buf = Buffer.fromArray<(Int, Nat)>(topUpCycleHistory);
+    buf.add((Time.now(), cyclesMinted));
+    topUpCycleHistory := keepLast<(Int, Nat)>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
+  };
+
+  func fundingStats(limit : Nat) : FundingStats {
+    let n = topUpCycleHistory.size();
+    let samples = Nat.min(limit, n);
+    var total : Nat = 0;
+    var i : Nat = 0;
+    var idx : Nat = n;
+    while (i < samples) {
+      idx -= 1;
+      total += topUpCycleHistory[idx].1;
+      i += 1;
+    };
+    {
+      samples;
+      avgCyclesFunded = if (samples == 0) 0 else total / samples;
+      totalCyclesFunded = total;
+      frontendCyclesKnown;
+      frontendCyclesUpdatedAt;
+    }
+  };
+
   func totalPoolsNat() : Nat {
     Nat64.toNat(dailyPool) + Nat64.toNat(smallPool) + Nat64.toNat(mediumPool) + Nat64.toNat(largePool)
   };
@@ -590,6 +640,8 @@ actor Treasury {
       lastCmcError;
       lastTopUpAt;
       lastTopUpAmount;
+      frontendCyclesKnown;
+      frontendCyclesUpdatedAt;
       lastSettleCyclesBefore;
       lastSettleCyclesAfter;
       lastSettleCyclesDelta = cyclesDelta(lastSettleCyclesBefore, lastSettleCyclesAfter);
@@ -602,6 +654,10 @@ actor Treasury {
 
   public query func getTreasuryAccounting() : async TreasuryAccounting {
     treasuryAccounting(accountingBalance())
+  };
+
+  public query func getFundingStats(limit : Nat) : async FundingStats {
+    fundingStats(limit)
   };
 
   public shared func refreshTreasuryAccounting() : async TreasuryAccounting {

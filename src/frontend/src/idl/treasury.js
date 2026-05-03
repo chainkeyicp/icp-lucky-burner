@@ -1,4 +1,4 @@
-import { IDL } from "@dfinity/candid";
+import { IDL } from "@icp-sdk/core/candid";
 
 export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
   const TransferRecord = IDL.Record({
@@ -24,6 +24,8 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     lastCmcError:           IDL.Text,
     lastTopUpAt:            IDL.Int,
     lastTopUpAmount:        IDL.Nat64,
+    frontendCyclesKnown:    IDL.Nat,
+    frontendCyclesUpdatedAt: IDL.Int,
     lastSettleCyclesBefore: IDL.Nat,
     lastSettleCyclesAfter:  IDL.Nat,
     lastSettleCyclesDelta:  IDL.Int,
@@ -31,6 +33,14 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     frontendConfigured:     IDL.Bool,
     historySize:            IDL.Nat,
     maxHistorySize:         IDL.Nat,
+  });
+
+  const FundingStats = IDL.Record({
+    samples:                IDL.Nat,
+    avgCyclesFunded:        IDL.Nat,
+    totalCyclesFunded:      IDL.Nat,
+    frontendCyclesKnown:    IDL.Nat,
+    frontendCyclesUpdatedAt: IDL.Int,
   });
 
   const TreasuryAccounting = IDL.Record({
@@ -53,6 +63,7 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
 
   return IDL.Service({
     getCyclesHealth:         IDL.Func([], [CyclesHealth], ["query"]),
+    getFundingStats:         IDL.Func([IDL.Nat], [FundingStats], ["query"]),
     getLastCmcError:         IDL.Func([], [IDL.Text], ["query"]),
     getPools:                IDL.Func([], [Pools], ["query"]),
     getTreasuryAccounting:   IDL.Func([], [TreasuryAccounting], ["query"]),

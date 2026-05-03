@@ -1,7 +1,7 @@
-import { AuthClient } from "@dfinity/auth-client";
-import { Actor, HttpAgent } from "@dfinity/agent";
-import { Ed25519KeyIdentity } from "@dfinity/identity";
-import { Principal } from "@dfinity/principal";
+import { AuthClient } from "@icp-sdk/auth/client";
+import { Actor, HttpAgent } from "@icp-sdk/core/agent";
+import { Ed25519KeyIdentity } from "@icp-sdk/core/identity";
+import { Principal } from "@icp-sdk/core/principal";
 import { lotteryIdl }  from "./idl/lottery.js";
 import { treasuryIdl } from "./idl/treasury.js";
 import { ledgerIdl }   from "./idl/ledger.js";
@@ -703,13 +703,13 @@ function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
     <span class="cycles-total">${formatCycles(visibleTotal)}</span>
     <span class="cycles-row"><span>Lottery</span><strong>${formatCycles(lotteryCycles)}</strong></span>
     <span class="cycles-row"><span>Treasury</span><strong>${formatCycles(treasuryCycles)}</strong></span>
-    <span class="cycles-row muted"><span>Frontend</span><strong>dfx only</strong></span>
+    <span class="cycles-row muted"><span>Frontend</span><strong>${formatKnownCycles(treasuryHealth.frontendCyclesKnown)}</strong></span>
   `;
 }
 
 async function refreshTransparency() {
   const { lottery, treasury } = makeAnonActors();
-  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers] = await Promise.allSettled([
+  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers, usageStats, fundingStats] = await Promise.allSettled([
     lottery.getCyclesHealth(),
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
@@ -717,6 +717,8 @@ async function refreshTransparency() {
     lottery.getWinnerHistoryPaged(0, 1),
     lottery.getRecentPurchases(),
     treasury.getTransferHistoryPaged(0, 12),
+    lottery.getAutonomyUsageStats(7),
+    treasury.getFundingStats(21),
   ]);
 
   let visibleCycles = null;
@@ -727,6 +729,8 @@ async function refreshTransparency() {
   let lastWinner = null;
   let payoutError = "unknown";
   let payoutNote = "none";
+  let rollingUsage = null;
+  let rollingFunding = null;
 
   if (lotteryHealth.status === "fulfilled") {
     const h = lotteryHealth.value;
@@ -747,6 +751,7 @@ async function refreshTransparency() {
     dailyCycleUse = (dailyCycleUse ?? 0n) + absBigInt(settleDelta);
     lastTopUpAmount = BigInt(h.lastTopUpAmount);
     setText("health-treasury-cycles", formatCycles(balance));
+    setText("health-frontend-cycles", formatKnownCycles(h.frontendCyclesKnown));
     setText("health-last-settle", formatCycleDelta(h.lastSettleCyclesDelta));
     setText("health-last-topup", lastTopUpAmount > 0n ? formatCycles(lastTopUpAmount) : "none yet");
     setText("health-cmc-status", h.lastCmcError === "none" ? "OK" : h.lastCmcError);
@@ -771,9 +776,11 @@ async function refreshTransparency() {
   if (status.status === "fulfilled") currentRoundId = Number(status.value.roundId);
   if (winners.status === "fulfilled" && winners.value.length > 0) lastWinner = winners.value[0];
   if (purchases.status === "fulfilled" && purchases.value.length > 0) latestPurchaseCount = Number(purchases.value[0].count);
+  if (usageStats.status === "fulfilled") rollingUsage = usageStats.value;
+  if (fundingStats.status === "fulfilled") rollingFunding = fundingStats.value;
 
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
-  renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount);
+  renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage, rollingFunding);
   if (transfers.status === "fulfilled") renderSettlementLog(transfers.value);
 }
 
@@ -804,31 +811,43 @@ function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutN
   setText("accounting-payout-note", payoutNote || "none");
 }
 
-function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount) {
-  if (dailyCycleUse === null || dailyCycleUse === 0n) {
+function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage = null, rollingFunding = null) {
+  const avgUsed = rollingUsage && Number(rollingUsage.samples) > 0
+    ? BigInt(rollingUsage.avgDailyCyclesUsed)
+    : dailyCycleUse;
+  const avgFunded = rollingFunding && Number(rollingFunding.samples) > 0
+    ? BigInt(rollingFunding.avgCyclesFunded)
+    : null;
+
+  if (avgUsed === null || avgUsed === 0n) {
     setText("autonomy-daily-use", "Waiting for first full draw");
     setText("autonomy-ticket-need", "Waiting for telemetry");
     setText("autonomy-runway", visibleCycles === null ? "Unknown" : "No daily cost yet");
-    setText("autonomy-basis", "Uses last draw + settle cycles after the first completed day.");
+    setText("autonomy-basis", "Uses rolling backend telemetry after completed draws and successful CMC top-ups.");
     return;
   }
 
-  setText("autonomy-daily-use", `${formatCycles(dailyCycleUse)} cycles`);
+  setText("autonomy-daily-use", `${formatCycles(avgUsed)} cycles`);
   if (visibleCycles !== null) {
-    const days = Number(visibleCycles) / Number(dailyCycleUse);
+    const days = Number(visibleCycles) / Number(avgUsed);
     setText("autonomy-runway", `${days.toFixed(days >= 10 ? 0 : 1)} days visible`);
   } else {
     setText("autonomy-runway", "Unknown");
   }
 
-  if (lastTopUpAmount && lastTopUpAmount > 0n && latestPurchaseCount && latestPurchaseCount > 0) {
-    const cyclesPerTicket = lastTopUpAmount / BigInt(latestPurchaseCount);
-    const needed = cyclesPerTicket > 0n ? ceilDiv(dailyCycleUse, cyclesPerTicket) : 0n;
+  if (avgFunded && avgFunded > 0n) {
+    const cyclesPerTicket = avgFunded * 3n;
+    const needed = ceilDiv(avgUsed, cyclesPerTicket);
     setText("autonomy-ticket-need", `${needed} ticket${needed === 1n ? "" : "s"}`);
-    setText("autonomy-basis", `Estimated from latest top-up (${formatCycles(lastTopUpAmount)} cycles) and latest visible purchase (${latestPurchaseCount} ticket${latestPurchaseCount > 1 ? "s" : ""}).`);
+    setText("autonomy-basis", `Rolling backend averages: ${rollingUsage.samples} draw sample${Number(rollingUsage.samples) === 1 ? "" : "s"}, ${rollingFunding.samples} CMC top-up sample${Number(rollingFunding.samples) === 1 ? "" : "s"}; assumes 3 successful top-ups per ticket.`);
+  } else if (lastTopUpAmount && lastTopUpAmount > 0n && latestPurchaseCount && latestPurchaseCount > 0) {
+    const cyclesPerTicket = lastTopUpAmount / BigInt(latestPurchaseCount);
+    const needed = cyclesPerTicket > 0n ? ceilDiv(avgUsed, cyclesPerTicket) : 0n;
+    setText("autonomy-ticket-need", `${needed} ticket${needed === 1n ? "" : "s"}`);
+    setText("autonomy-basis", `Fallback estimate from latest top-up (${formatCycles(lastTopUpAmount)} cycles) and latest visible purchase (${latestPurchaseCount} ticket${latestPurchaseCount > 1 ? "s" : ""}).`);
   } else {
     setText("autonomy-ticket-need", "Waiting for top-up");
-    setText("autonomy-basis", "Needs a recent top-up and visible purchase count to estimate cycles funded per ticket.");
+    setText("autonomy-basis", "Needs successful CMC top-up telemetry to estimate cycles funded.");
   }
 }
 
@@ -1193,6 +1212,12 @@ function formatCycles(cycles) {
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   return String(n);
+}
+
+function formatKnownCycles(cycles) {
+  const n = BigInt(cycles ?? 0);
+  if (n === 0n) return "Waiting for top-up";
+  return `${formatCycles(n)} known`;
 }
 
 function formatCycleDelta(delta) {

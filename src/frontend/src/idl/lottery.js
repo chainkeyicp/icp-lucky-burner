@@ -1,4 +1,4 @@
-import { IDL } from "@dfinity/candid";
+import { IDL } from "@icp-sdk/core/candid";
 
 export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
   const WinnerRecord = IDL.Record({
@@ -52,6 +52,14 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     maxHistorySize:       IDL.Nat,
   });
 
+  const AutonomyUsageStats = IDL.Record({
+    samples:             IDL.Nat,
+    avgDailyCyclesUsed:  IDL.Nat,
+    avgTicketsPerRound:  IDL.Nat,
+    totalCyclesUsed:     IDL.Nat,
+    totalTickets:        IDL.Nat,
+  });
+
   const Result = IDL.Variant({ ok: IDL.Text, err: IDL.Text });
 
   return IDL.Service({
@@ -62,6 +70,7 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     setDevMode:            IDL.Func([IDL.Bool],         [],              []),
     getRoundStatus:        IDL.Func([],                 [RoundStatus],   ["query"]),
     getCyclesHealth:       IDL.Func([],                 [CyclesHealth],  ["query"]),
+    getAutonomyUsageStats: IDL.Func([IDL.Nat],          [AutonomyUsageStats], ["query"]),
     getMyRounds:           IDL.Func([IDL.Principal],    [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat, IDL.Nat))], ["query"]),
     getWinnerHistory:      IDL.Func([],                 [IDL.Vec(WinnerRecord)], ["query"]),
     getWinnerHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(WinnerRecord)], ["query"]),

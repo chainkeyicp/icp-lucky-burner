@@ -1,4 +1,4 @@
-import { IDL } from "@dfinity/candid";
+import { IDL } from "@icp-sdk/core/candid";
 
 export const ledgerIdl = ({ IDL: _ } = { IDL }) => {
   const Account = IDL.Record({

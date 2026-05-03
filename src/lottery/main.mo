@@ -93,6 +93,14 @@ actor Lottery {
     maxHistorySize       : Nat;
   };
 
+  public type AutonomyUsageStats = {
+    samples              : Nat;
+    avgDailyCyclesUsed   : Nat;
+    avgTicketsPerRound   : Nat;
+    totalCyclesUsed      : Nat;
+    totalTickets         : Nat;
+  };
+
   type TransferFromError = {
     #BadFee              : { expected_fee : Nat };
     #BadBurn             : { min_burn_amount : Nat };
@@ -134,6 +142,7 @@ actor Lottery {
   stable var lastBuyCyclesAfter   : Nat = 0;
   stable var lastDrawCyclesBefore : Nat = 0;
   stable var lastDrawCyclesAfter  : Nat = 0;
+  stable var cycleUsageHistory    : [(Nat, Nat, Nat)] = [];
 
   // Local pool cache — mirrors treasury pools, updated at purchase and draw
   stable var cachedDailyPool   : Nat64 = 0;
@@ -238,6 +247,38 @@ actor Lottery {
     if (after >= before) Int.abs(after - before) else -Int.abs(before - after)
   };
 
+  func cyclesUsed(before : Nat, after : Nat) : Nat {
+    if (before >= after) before - after else after - before
+  };
+
+  func recordCycleUsage(roundId : Nat, ticketsSold : Nat, used : Nat) {
+    let buf = Buffer.fromArray<(Nat, Nat, Nat)>(cycleUsageHistory);
+    buf.add((roundId, ticketsSold, used));
+    cycleUsageHistory := keepLast<(Nat, Nat, Nat)>(Buffer.toArray(buf), MAX_ROUND_SNAPSHOTS);
+  };
+
+  func autonomyUsageStats(limit : Nat) : AutonomyUsageStats {
+    let n = cycleUsageHistory.size();
+    let samples = Nat.min(limit, n);
+    var totalCycles : Nat = 0;
+    var totalTickets : Nat = 0;
+    var i : Nat = 0;
+    var idx : Nat = n;
+    while (i < samples) {
+      idx -= 1;
+      totalTickets += cycleUsageHistory[idx].1;
+      totalCycles += cycleUsageHistory[idx].2;
+      i += 1;
+    };
+    {
+      samples;
+      avgDailyCyclesUsed = if (samples == 0) 0 else totalCycles / samples;
+      avgTicketsPerRound = if (samples == 0) 0 else totalTickets / samples;
+      totalCyclesUsed = totalCycles;
+      totalTickets;
+    }
+  };
+
   // ── Draw ───────────────────────────────────────────────────────────────────
 
   func draw() : async () {
@@ -254,8 +295,9 @@ actor Lottery {
         smallAmt = 0; mediumAmt = 0; largeAmt = 0;
       });
       winnerHistory := keepLast<WinnerRecord>(Buffer.toArray(buf), MAX_WINNER_HISTORY);
-      advanceRound();
       lastDrawCyclesAfter := Cycles.balance();
+      recordCycleUsage(currentRound, sold, cyclesUsed(lastDrawCyclesBefore, lastDrawCyclesAfter));
+      advanceRound();
       return;
     };
 
@@ -317,8 +359,9 @@ actor Lottery {
       smallAmt = sAmt; mediumAmt = mAmt; largeAmt = lAmt;
     });
     winnerHistory := keepLast<WinnerRecord>(Buffer.toArray(buf), MAX_WINNER_HISTORY);
-    advanceRound();
     lastDrawCyclesAfter := Cycles.balance();
+    recordCycleUsage(currentRound, sold, cyclesUsed(lastDrawCyclesBefore, lastDrawCyclesAfter));
+    advanceRound();
   };
 
   func advanceRound() {
@@ -495,5 +538,9 @@ actor Lottery {
       snapshotSize = roundParticipantsArr.size();
       maxHistorySize = MAX_WINNER_HISTORY;
     }
+  };
+
+  public query func getAutonomyUsageStats(limit : Nat) : async AutonomyUsageStats {
+    autonomyUsageStats(limit)
   };
 }
