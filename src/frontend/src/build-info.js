@@ -1,5 +1,5 @@
 export const BUILD_INFO = {
-  gitCommit: "0ea92f232804",
+  gitCommit: "3b7e887253a0",
   githubUrl: "https://github.com/chainkeyicp/icp-lucky-burner",
   customDomain: "https://luckyburner.fun/",
   canisters: {

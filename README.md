@@ -50,7 +50,7 @@ Production:
 
 - Website: https://luckyburner.fun/
 - Repository: https://github.com/chainkeyicp/icp-lucky-burner
-- Current published commit: `0ea92f232804`
+- Current published commit: `3b7e887253a0`
 
 Canisters:
 
@@ -74,7 +74,7 @@ Rebuild from the published commit:
 ```bash
 git clone https://github.com/chainkeyicp/icp-lucky-burner.git
 cd icp-lucky-burner
-git checkout 0ea92f232804
+git checkout 3b7e887253a0
 cd src/frontend
 npm ci
 cd ../..
