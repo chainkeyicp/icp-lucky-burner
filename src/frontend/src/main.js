@@ -14,7 +14,7 @@ const TREASURY_ID = IS_IC_HOST ? "msox6-nyaaa-aaaal-qw54q-cai" : (import.meta.en
 const LEDGER_ID   = "ryjl3-tyaaa-aaaaa-aaaba-cai";
 const IS_LOCAL    = !IS_IC_HOST && (import.meta.env.VITE_DFX_NETWORK ?? "local") !== "ic";
 const HOST        = IS_LOCAL ? (import.meta.env.VITE_HOST ?? "http://localhost:8080") : "https://icp-api.io";
-const II_URL      = "https://identity.ic0.app";
+const II_URL      = "https://id.ai/?feature_flag_guided_upgrade=true";
 const EXPLORER_BASE = "https://dashboard.internetcomputer.org/transaction/";
 const LEDGER_FEE  = 10_000n;
 
