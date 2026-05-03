@@ -41,7 +41,9 @@ function liveModuleHash(canisterId) {
 }
 
 const commit = process.env.DEPLOYMENT_GIT_COMMIT || git(["rev-parse", "HEAD"]);
-const dirty = git(["status", "--porcelain"]).length > 0;
+const dirty = process.env.DEPLOYMENT_GIT_DIRTY
+  ? process.env.DEPLOYMENT_GIT_DIRTY === "1"
+  : git(["status", "--porcelain"]).length > 0;
 const runUrl = process.env.DEPLOYMENT_VERIFY_RUN_URL
   || (process.env.GITHUB_RUN_ID ? `${githubUrl}/actions/runs/${process.env.GITHUB_RUN_ID}` : null);
 
