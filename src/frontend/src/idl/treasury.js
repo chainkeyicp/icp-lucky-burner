@@ -21,6 +21,20 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     error:        IDL.Text,
   });
 
+  const PendingPayout = IDL.Record({
+    id:          IDL.Nat,
+    to:          IDL.Principal,
+    amount:      IDL.Nat64,
+    note:        IDL.Text,
+    retryCount:  IDL.Nat,
+    nextRetryAt: IDL.Int,
+    lastError:   IDL.Text,
+    status:      IDL.Text,
+    blockIndex:  IDL.Nat64,
+    createdAt:   IDL.Int,
+    updatedAt:   IDL.Int,
+  });
+
   const Pools = IDL.Record({
     daily:     IDL.Nat64,
     small:     IDL.Nat64,
@@ -71,6 +85,8 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     lastPayoutError:    IDL.Text,
     lastPayoutAt:       IDL.Int,
     lastPayoutNote:     IDL.Text,
+    pendingPayoutCount: IDL.Nat,
+    pendingPayoutTotal: IDL.Nat,
   });
 
   return IDL.Service({
@@ -84,6 +100,7 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     getTransferHistory:      IDL.Func([], [IDL.Vec(TransferRecord)], ["query"]),
     getTransferHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TransferRecord)], ["query"]),
     getTopUpAuditHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TopUpAuditRecord)], ["query"]),
+    getPendingPayouts:     IDL.Func([], [IDL.Vec(PendingPayout)], ["query"]),
     setCmcAccountIds:        IDL.Func([IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8)], [], []),
     setDevMode:              IDL.Func([IDL.Bool], [], []),
     setDevPrincipal:         IDL.Func([IDL.Text], [], []),

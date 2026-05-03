@@ -749,7 +749,7 @@ function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
 
 async function refreshTransparency() {
   const { lottery, treasury } = makeAnonActors();
-  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers, topUpAudits, usageStats, fundingStats] = await Promise.allSettled([
+  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers, topUpAudits, pendingPayouts, usageStats, fundingStats] = await Promise.allSettled([
     lottery.getCyclesHealth(),
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
@@ -758,6 +758,7 @@ async function refreshTransparency() {
     lottery.getRecentPurchases(),
     treasury.getTransferHistoryPaged(0, 12),
     treasury.getTopUpAuditHistoryPaged(0, 18),
+    treasury.getPendingPayouts(),
     lottery.getAutonomyUsageStats(7),
     treasury.getFundingStats(21),
   ]);
@@ -813,6 +814,7 @@ async function refreshTransparency() {
     setText("accounting-buffer", e8sToIcp(BigInt(a.unallocatedBalance)));
     setText("accounting-deficit", e8sToIcp(BigInt(a.poolDeficit)));
     setText("settlement-payout-status", a.lastPayoutError === "none" || a.lastPayoutError === "ok" ? "OK" : a.lastPayoutError);
+    setText("settlement-pending-payouts", Number(a.pendingPayoutCount) === 0 ? "0" : `${a.pendingPayoutCount} / ${e8sToIcp(BigInt(a.pendingPayoutTotal))}`);
     setText("accounting-payout-note", payoutNote);
     setText("accounting-small-eligibility", mysteryStatusText(BigInt(a.smallPool), BigInt(a.minSmall), "25%"));
     setText("accounting-medium-eligibility", mysteryStatusText(BigInt(a.mediumPool), BigInt(a.minMedium), "10%"));
@@ -824,6 +826,9 @@ async function refreshTransparency() {
   if (purchases.status === "fulfilled" && purchases.value.length > 0) latestPurchaseCount = Number(purchases.value[0].count);
   if (usageStats.status === "fulfilled") rollingUsage = usageStats.value;
   if (fundingStats.status === "fulfilled") rollingFunding = fundingStats.value;
+  if (pendingPayouts.status === "fulfilled" && pendingPayouts.value.length > 0) {
+    setText("settlement-pending-payouts", renderPendingPayoutSummary(pendingPayouts.value));
+  }
 
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
   renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage, rollingFunding);
@@ -835,6 +840,15 @@ async function refreshTransparency() {
       cmcSummary
     );
   }
+}
+
+function renderPendingPayoutSummary(rows) {
+  const total = rows.reduce((sum, r) => sum + BigInt(r.amount), 0n);
+  const next = rows
+    .filter(r => r.status === "pending" && BigInt(r.nextRetryAt) > 0n)
+    .sort((a, b) => BigInt(a.nextRetryAt) < BigInt(b.nextRetryAt) ? -1 : 1)[0];
+  if (!next) return `${rows.length} / ${e8sToIcp(total)}`;
+  return `${rows.length} / ${e8sToIcp(total)}; next retry ${timeAgoFuture(BigInt(next.nextRetryAt))}`;
 }
 
 function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote) {
@@ -1003,6 +1017,15 @@ function timeAgo(ns) {
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
   return `${Math.floor(sec/3600)}h ago`;
+}
+
+function timeAgoFuture(ns) {
+  const nowNs = BigInt(Date.now()) * 1_000_000n;
+  const secBig = ns > nowNs ? (ns - nowNs) / 1_000_000_000n : 0n;
+  const sec = Number(secBig);
+  if (sec < 60) return `in ${sec}s`;
+  if (sec < 3600) return `in ${Math.floor(sec/60)}m`;
+  return `in ${Math.floor(sec/3600)}h`;
 }
 
 // ── Modal ──────────────────────────────────────────────────────────────────

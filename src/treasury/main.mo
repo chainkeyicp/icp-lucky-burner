@@ -9,6 +9,7 @@ import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
 import Cycles "mo:base/ExperimentalCycles";
+import Timer "mo:base/Timer";
 
 persistent actor Treasury {
   stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
@@ -19,6 +20,8 @@ persistent actor Treasury {
   transient let CMC_ID     : Text = "rkp4c-7iaaa-aaaaa-aaaca-cai";
   transient let LEDGER_FEE : Nat  = 10_000; // 0.0001 ICP in e8s
   transient let MAX_TRANSFER_HISTORY : Nat = 1_000;
+  transient let MAX_PAYOUT_RETRIES : Nat = 10;
+  transient let PAYOUT_RETRY_INTERVAL_NANOS : Nat = 300_000_000_000; // 5 minutes
 
   // ── Actor types ────────────────────────────────────────────────────────────
 
@@ -87,6 +90,20 @@ persistent actor Treasury {
     error        : Text;
   };
 
+  public type PendingPayout = {
+    id         : Nat;
+    to         : Principal;
+    amount     : Nat64;
+    note       : Text;
+    retryCount : Nat;
+    nextRetryAt : Int;
+    lastError  : Text;
+    status     : Text;
+    blockIndex : Nat64;
+    createdAt  : Int;
+    updatedAt  : Int;
+  };
+
   public type SettleOk = { amountWon : Nat64; blockIndex : Nat64 };
 
   public type CyclesHealth = {
@@ -121,6 +138,8 @@ persistent actor Treasury {
     lastPayoutError        : Text;
     lastPayoutAt           : Int;
     lastPayoutNote         : Text;
+    pendingPayoutCount     : Nat;
+    pendingPayoutTotal     : Nat;
   };
 
   public type FundingStats = {
@@ -149,6 +168,8 @@ persistent actor Treasury {
   stable var frontendCyclesUpdatedAt : Int = 0;
   stable var topUpCycleHistory : [(Int, Nat)] = [];
   stable var topUpAuditHistory : [TopUpAuditRecord] = [];
+  stable var pendingPayouts : [PendingPayout] = [];
+  stable var nextPendingPayoutId : Nat = 0;
   stable var lastSettleCyclesBefore : Nat = 0;
   stable var lastSettleCyclesAfter  : Nat = 0;
   stable var lastPayoutError : Text = "none";
@@ -156,6 +177,7 @@ persistent actor Treasury {
   stable var lastPayoutNote  : Text = "none";
   stable var cachedLedgerBalance : Nat = 0;
   stable var cachedLedgerBalanceAt : Int = 0;
+  transient var payoutRetryTimerId : ?Timer.TimerId = null;
 
   // Min pool sizes before mystery can drop (in e8s)
   transient let MIN_SMALL  : Nat64 = 50_000_000;  // 0.5 ICP
@@ -164,6 +186,10 @@ persistent actor Treasury {
 
   // ── Upgrade hook ──────────────────────────────────────────────────────────
 
+  system func preupgrade() {
+    switch (payoutRetryTimerId) { case (?id) Timer.cancelTimer(id); case null {} };
+  };
+
   system func postupgrade() {
     admin        := Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
     devPrincipal := "njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae";
@@ -171,6 +197,7 @@ persistent actor Treasury {
     cmcLotteryAccountId  := ?Blob.fromArray([46,7,15,5,226,247,37,177,20,92,19,19,237,155,195,39,113,37,21,167,226,175,174,17,205,201,219,254,107,16,176,114]);
     cmcTreasuryAccountId := ?Blob.fromArray([252,7,177,91,47,178,11,179,214,34,155,200,128,52,109,192,177,58,212,155,147,84,79,83,231,90,197,72,111,169,31,209]);
     cmcFrontendAccountId := ?Blob.fromArray([196,138,80,230,198,178,78,66,160,253,131,229,121,56,69,231,45,127,59,62,207,197,50,72,11,201,199,223,235,239,202,237]);
+    schedulePayoutRetryLoop<system>();
   };
 
   // ── Admin ──────────────────────────────────────────────────────────────────
@@ -444,9 +471,10 @@ persistent actor Treasury {
     let blockIndex : Nat64 = switch winRes {
       case (#Ok(bi)) Nat64.fromNat(bi);
       case (#Err(e)) {
-        dailyPool += dp;
+        let err = "Daily transfer failed: " # transferErrText(e);
+        ignore createPendingPayout(dailyWinner, dp, "Daily Prize", err);
         lastSettleCyclesAfter := Cycles.balance();
-        return #err("Daily transfer failed: " # transferErrText(e));
+        return #ok({ amountWon = Nat64.fromNat(winNet); blockIndex = 0 });
       };
     };
     recordWithBlock(dailyWinner, dp, blockIndex, "Daily Prize");
@@ -495,6 +523,114 @@ persistent actor Treasury {
     }
   };
 
+  func schedulePayoutRetryLoop<system>() {
+    switch (payoutRetryTimerId) { case (?id) Timer.cancelTimer(id); case null {} };
+    payoutRetryTimerId := ?Timer.setTimer<system>(#nanoseconds PAYOUT_RETRY_INTERVAL_NANOS, func() : async () {
+      payoutRetryTimerId := null;
+      await retryDuePayouts();
+      schedulePayoutRetryLoop<system>();
+    });
+  };
+
+  func createPendingPayout(to : Principal, amount : Nat64, note : Text, err : Text) : Nat {
+    let now = Time.now();
+    let id = nextPendingPayoutId;
+    nextPendingPayoutId += 1;
+    let rec : PendingPayout = {
+      id;
+      to;
+      amount;
+      note;
+      retryCount = 0;
+      nextRetryAt = now + PAYOUT_RETRY_INTERVAL_NANOS;
+      lastError = err;
+      status = "pending";
+      blockIndex = 0;
+      createdAt = now;
+      updatedAt = now;
+    };
+    let buf = Buffer.fromArray<PendingPayout>(pendingPayouts);
+    buf.add(rec);
+    pendingPayouts := keepLast<PendingPayout>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
+    lastPayoutError := err;
+    lastPayoutAt := now;
+    lastPayoutNote := note;
+    id
+  };
+
+  func retryDuePayouts() : async () {
+    let now = Time.now();
+    let buf = Buffer.Buffer<PendingPayout>(pendingPayouts.size());
+    for (p in pendingPayouts.vals()) {
+      if (p.status == "pending" and p.nextRetryAt <= now and p.retryCount < MAX_PAYOUT_RETRIES) {
+        let updated = await retryPendingPayout(p);
+        buf.add(updated);
+      } else {
+        buf.add(p);
+      };
+    };
+    pendingPayouts := Buffer.toArray(buf);
+  };
+
+  func retryPendingPayout(p : PendingPayout) : async PendingPayout {
+    let amountNat = Nat64.toNat(p.amount);
+    if (amountNat <= LEDGER_FEE) {
+      let now = Time.now();
+      return {
+        p with
+        retryCount = p.retryCount + 1;
+        nextRetryAt = now + PAYOUT_RETRY_INTERVAL_NANOS;
+        lastError = "Amount too small to cover fee";
+        status = "failed";
+        updatedAt = now;
+      };
+    };
+
+    let res = await ledger.icrc1_transfer({
+      to              = { owner = p.to; subaccount = null };
+      amount          = Nat.sub(amountNat, LEDGER_FEE);
+      fee             = ?LEDGER_FEE;
+      memo            = null;
+      from_subaccount = null;
+      created_at_time = null;
+    });
+    let now = Time.now();
+    switch res {
+      case (#Ok(blockIndex)) {
+        let bi = Nat64.fromNat(blockIndex);
+        recordWithBlock(p.to, p.amount, bi, p.note # " retry");
+        trackOutgoing(p.amount);
+        lastPayoutError := "ok";
+        lastPayoutAt := now;
+        lastPayoutNote := p.note # " retry";
+        {
+          p with
+          retryCount = p.retryCount + 1;
+          nextRetryAt = 0;
+          lastError = "";
+          status = "paid";
+          blockIndex = bi;
+          updatedAt = now;
+        }
+      };
+      case (#Err(e)) {
+        let err = p.note # " retry failed: " # transferErrText(e);
+        let nextCount = p.retryCount + 1;
+        lastPayoutError := err;
+        lastPayoutAt := now;
+        lastPayoutNote := p.note # " retry";
+        {
+          p with
+          retryCount = nextCount;
+          nextRetryAt = now + PAYOUT_RETRY_INTERVAL_NANOS;
+          lastError = err;
+          status = if (nextCount >= MAX_PAYOUT_RETRIES) "failed" else "pending";
+          updatedAt = now;
+        }
+      };
+    }
+  };
+
   func payPrize(to : Principal, amount : Nat64, note : Text) : async Bool {
     let amountNat = Nat64.toNat(amount);
     if (amountNat <= LEDGER_FEE) {
@@ -522,10 +658,9 @@ persistent actor Treasury {
         true
       };
       case (#Err(e)) {
-        lastPayoutError := note # " failed: " # transferErrText(e);
-        lastPayoutAt := Time.now();
-        lastPayoutNote := note;
-        false
+        let err = note # " failed: " # transferErrText(e);
+        ignore createPendingPayout(to, amount, note, err);
+        true
       };
     }
   };
@@ -618,8 +753,24 @@ persistent actor Treasury {
     Nat64.toNat(dailyPool) + Nat64.toNat(smallPool) + Nat64.toNat(mediumPool) + Nat64.toNat(largePool)
   };
 
+  func pendingPayoutTotalNat() : Nat {
+    var total : Nat = 0;
+    for (p in pendingPayouts.vals()) {
+      if (p.status != "paid") total += Nat64.toNat(p.amount);
+    };
+    total
+  };
+
+  func pendingPayoutCountNat() : Nat {
+    var total : Nat = 0;
+    for (p in pendingPayouts.vals()) {
+      if (p.status != "paid") total += 1;
+    };
+    total
+  };
+
   func accountingBalance() : Nat {
-    if (cachedLedgerBalance == 0) totalPoolsNat() else cachedLedgerBalance
+    if (cachedLedgerBalance == 0) totalPoolsNat() + pendingPayoutTotalNat() else cachedLedgerBalance
   };
 
   func trackIncoming(amount : Nat64) {
@@ -635,7 +786,8 @@ persistent actor Treasury {
   };
 
   func treasuryAccounting(balance : Nat) : TreasuryAccounting {
-    let totalPools = totalPoolsNat();
+    let pendingTotal = pendingPayoutTotalNat();
+    let totalPools = totalPoolsNat() + pendingTotal;
     {
       ledgerBalance = balance;
       totalPools;
@@ -652,6 +804,8 @@ persistent actor Treasury {
       lastPayoutError;
       lastPayoutAt;
       lastPayoutNote;
+      pendingPayoutCount = pendingPayoutCountNat();
+      pendingPayoutTotal = pendingTotal;
     }
   };
 
@@ -735,5 +889,11 @@ persistent actor Treasury {
     if (offset >= t) return [];
     let rev = Array.tabulate<TopUpAuditRecord>(t, func(i) { topUpAuditHistory[t - 1 - i] });
     Array.tabulate<TopUpAuditRecord>(Nat.min(offset + limit, t) - offset, func(i) { rev[offset + i] })
+  };
+
+  public query func getPendingPayouts() : async [PendingPayout] {
+    let active = Array.filter<PendingPayout>(pendingPayouts, func(p) { p.status != "paid" });
+    let t = active.size();
+    Array.tabulate<PendingPayout>(t, func(i) { active[t - 1 - i] })
   };
 }
