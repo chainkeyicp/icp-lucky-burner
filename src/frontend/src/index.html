@@ -387,6 +387,27 @@
         </div>
 
         <div class="rules-card">
+          <h3>Settlement Log</h3>
+          <p class="rules-intro">Recent treasury movements, readable publicly without login.</p>
+          <div class="settlement-log-wrap">
+            <table class="settlement-log-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Recipient</th>
+                  <th>Amount</th>
+                  <th>Block</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="settlement-log-tbody">
+                <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rules-card">
           <h3>Transparency & Fairness</h3>
           <ul>
             <li>Winner selection uses ICP's native on-chain randomness — threshold BLS signatures, not manipulable by anyone.</li>

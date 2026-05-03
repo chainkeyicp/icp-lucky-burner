@@ -709,13 +709,14 @@ function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
 
 async function refreshTransparency() {
   const { lottery, treasury } = makeAnonActors();
-  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases] = await Promise.allSettled([
+  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers] = await Promise.allSettled([
     lottery.getCyclesHealth(),
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
     lottery.getRoundStatus(),
     lottery.getWinnerHistoryPaged(0, 1),
     lottery.getRecentPurchases(),
+    treasury.getTransferHistoryPaged(0, 12),
   ]);
 
   let visibleCycles = null;
@@ -773,6 +774,7 @@ async function refreshTransparency() {
 
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
   renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount);
+  if (transfers.status === "fulfilled") renderSettlementLog(transfers.value);
 }
 
 function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote) {
@@ -828,6 +830,30 @@ function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, l
     setText("autonomy-ticket-need", "Waiting for top-up");
     setText("autonomy-basis", "Needs a recent top-up and visible purchase count to estimate cycles funded per ticket.");
   }
+}
+
+function renderSettlementLog(rows) {
+  const tbody = document.getElementById("settlement-log-tbody");
+  if (!tbody) return;
+  const payoutRows = rows.filter(r => r.note !== "Developer fee (2%)").slice(0, 10);
+  if (payoutRows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No treasury movements yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = payoutRows.map(r => {
+    const bi = Number(r.blockIndex);
+    const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+    const isTopUp = r.note === "Cycles top-up (10%)";
+    return `<tr>
+      <td>${r.note}</td>
+      <td class="principal-short">${isTopUp ? "Cycles Minting" : shortPrincipal(r.to.toText())}</td>
+      <td>${e8sToIcp(r.amount)}</td>
+      <td>${bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : `<span class="muted-text">pending</span>`}</td>
+      <td>${date}</td>
+    </tr>`;
+  }).join("");
 }
 
 function timeAgo(ns) {
