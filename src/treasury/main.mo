@@ -15,10 +15,10 @@ actor Treasury {
 
   // ── Canister IDs ───────────────────────────────────────────────────────────
 
-  let LEDGER_ID  : Text = "ryjl3-tyaaa-aaaaa-aaaba-cai";
-  let CMC_ID     : Text = "rkp4c-7iaaa-aaaaa-aaaca-cai";
-  let LEDGER_FEE : Nat  = 10_000; // 0.0001 ICP in e8s
-  let MAX_TRANSFER_HISTORY : Nat = 1_000;
+  transient let LEDGER_ID  : Text = "ryjl3-tyaaa-aaaaa-aaaba-cai";
+  transient let CMC_ID     : Text = "rkp4c-7iaaa-aaaaa-aaaca-cai";
+  transient let LEDGER_FEE : Nat  = 10_000; // 0.0001 ICP in e8s
+  transient let MAX_TRANSFER_HISTORY : Nat = 1_000;
 
   // ── Actor types ────────────────────────────────────────────────────────────
 
@@ -62,8 +62,8 @@ actor Treasury {
     }) -> async { #Ok : Nat; #Err : { #Refunded : { block_index : ?Nat64; reason : Text }; #InvalidTransaction : Text; #Other : { error_message : Text; error_code : Nat64 }; #Processing; #TransactionTooOld : Nat64 } };
   };
 
-  let ledger : LedgerActor = actor(LEDGER_ID);
-  let cmc    : CMCActor    = actor(CMC_ID);
+  transient let ledger : LedgerActor = actor(LEDGER_ID);
+  transient let cmc    : CMCActor    = actor(CMC_ID);
 
   // ── Public types ───────────────────────────────────────────────────────────
 
@@ -145,9 +145,9 @@ actor Treasury {
   stable var cachedLedgerBalanceAt : Int = 0;
 
   // Min pool sizes before mystery can drop (in e8s)
-  let MIN_SMALL  : Nat64 = 50_000_000;  // 0.5 ICP
-  let MIN_MEDIUM : Nat64 = 200_000_000; // 2.0 ICP
-  let MIN_LARGE  : Nat64 = 500_000_000; // 5.0 ICP
+  transient let MIN_SMALL  : Nat64 = 50_000_000;  // 0.5 ICP
+  transient let MIN_MEDIUM : Nat64 = 200_000_000; // 2.0 ICP
+  transient let MIN_LARGE  : Nat64 = 500_000_000; // 5.0 ICP
 
   // ── Upgrade hook ──────────────────────────────────────────────────────────
 

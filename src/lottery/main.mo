@@ -19,20 +19,20 @@ import Treasury "canister:treasury";
 actor Lottery {
   stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
 
-  let TICKET_PRICE_E8S : Nat64 = 10_000_000; // 0.1 ICP
-  let TICKET_PRICE     : Nat   = 10_000_000;
-  let MAX_TICKETS      : Nat   = 10;
-  let DAY_NANOS        : Int   = 86_400_000_000_000;
-  let LEDGER_ID        : Text  = "ryjl3-tyaaa-aaaaa-aaaba-cai";
-  let LEDGER_FEE       : Nat   = 10_000;
-  let MAX_WINNER_HISTORY : Nat = 500;
-  let MAX_ROUND_SNAPSHOTS : Nat = 500;
+  transient let TICKET_PRICE_E8S : Nat64 = 10_000_000; // 0.1 ICP
+  transient let TICKET_PRICE     : Nat   = 10_000_000;
+  transient let MAX_TICKETS      : Nat   = 10;
+  transient let DAY_NANOS        : Int   = 86_400_000_000_000;
+  transient let LEDGER_ID        : Text  = "ryjl3-tyaaa-aaaaa-aaaba-cai";
+  transient let LEDGER_FEE       : Nat   = 10_000;
+  transient let MAX_WINNER_HISTORY : Nat = 500;
+  transient let MAX_ROUND_SNAPSHOTS : Nat = 500;
 
   // Mystery drop thresholds (out of 256)
   // 25% ≈ 64/256 | 10% ≈ 26/256 | 3% ≈ 8/256
-  let SMALL_THRESHOLD  : Nat8 = 64;
-  let MEDIUM_THRESHOLD : Nat8 = 26;
-  let LARGE_THRESHOLD  : Nat8 = 8;
+  transient let SMALL_THRESHOLD  : Nat8 = 64;
+  transient let MEDIUM_THRESHOLD : Nat8 = 26;
+  transient let LARGE_THRESHOLD  : Nat8 = 8;
 
   // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ actor Lottery {
     }) -> async { #Ok : Nat; #Err : TransferFromError };
   };
 
-  let ledger : LedgerActor = actor(LEDGER_ID);
+  transient let ledger : LedgerActor = actor(LEDGER_ID);
 
   // ── Stable state ───────────────────────────────────────────────────────────
 
