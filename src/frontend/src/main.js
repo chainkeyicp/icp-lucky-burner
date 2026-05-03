@@ -66,7 +66,7 @@ async function initAsync() {
   refreshLiveFeed();
   refreshLastWinner();
   refreshStats();
-  if (activePage() === "rules") refreshTransparency();
+  if (activePage() === "transparency") refreshTransparency();
   renderBuildVerification();
 
   setInterval(async () => {
@@ -74,7 +74,7 @@ async function initAsync() {
     await refreshLiveFeed();
     await refreshLastWinner();
     await refreshStats();
-    if (activePage() === "rules") await refreshTransparency();
+    if (activePage() === "transparency") await refreshTransparency();
   }, 30_000);
 }
 
@@ -152,7 +152,7 @@ function setupNav() {
       if (page === "winners") refreshWinners();
       if (page === "lottery") refreshLastWinner();
       if (page === "wallet") refreshMyHistory();
-      if (page === "rules") refreshTransparency();
+      if (page === "transparency") refreshTransparency();
     });
   });
 }
