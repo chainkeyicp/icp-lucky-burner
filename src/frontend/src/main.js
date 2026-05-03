@@ -31,6 +31,7 @@ let winnersOffset = 0;
 let lastRoundId   = 0;
 let lastTopUpToastAt = 0n;
 let latestRoundSnapshot = null;
+let latestWinnerHistory = [];
 const WINNERS_PAGE = 20;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -417,8 +418,12 @@ function makeAnonActors() {
 async function refreshRound() {
   const actor = lotteryActor ?? makeAnonActors().lottery;
   try {
-    const s = await actor.getRoundStatus();
-    renderRound(s);
+    const [statusResult, historyResult] = await Promise.allSettled([
+      actor.getRoundStatus(),
+      actor.getWinnerHistoryPaged(0, 50),
+    ]);
+    if (historyResult.status === "fulfilled") latestWinnerHistory = historyResult.value;
+    if (statusResult.status === "fulfilled") renderRound(statusResult.value);
   } catch (e) { console.error("getRoundStatus:", e); }
 }
 
@@ -455,9 +460,9 @@ async function renderRound(s) {
   const largeNow  = BigInt(Math.floor(large));
 
   document.getElementById("daily-sub").textContent  = `From today's ${e8sToIcp(BigInt(Math.floor(daily)))} pool`;
-  document.getElementById("small-sub").textContent  = mysteryStatusText(smallNow, BigInt(minS), "25%");
-  document.getElementById("medium-sub").textContent = mysteryStatusText(mediumNow, BigInt(minM), "10%");
-  document.getElementById("large-sub").textContent  = mysteryStatusText(largeNow, BigInt(minL), "3%");
+  document.getElementById("small-sub").textContent  = mysteryStatusText(smallNow, BigInt(minS), "25%", mysteryTimelineText("small", s));
+  document.getElementById("medium-sub").textContent = mysteryStatusText(mediumNow, BigInt(minM), "10%", mysteryTimelineText("medium", s));
+  document.getElementById("large-sub").textContent  = mysteryStatusText(largeNow, BigInt(minL), "3%", mysteryTimelineText("large", s));
 
   const my   = Number(s.myTickets);
   const sold = Number(s.ticketsSold);
@@ -511,9 +516,45 @@ function notifyIfWinner(record, prize, winner, amount, message, myAddr) {
   toast(message, "win");
 }
 
-function mysteryStatusText(amount, min, chance) {
-  if (amount >= min) return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - eligible - ${chance} chance`;
-  return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - not eligible`;
+function mysteryTimelineText(kind, status) {
+  const cfg = {
+    small:  { amount: BigInt(status.smallPool),  min: BigInt(status.minSmall),  perTicket: 1_600_000n, winner: "smallWinner",  prize: "smallAmt" },
+    medium: { amount: BigInt(status.mediumPool), min: BigInt(status.minMedium), perTicket: 1_100_000n, winner: "mediumWinner", prize: "mediumAmt" },
+    large:  { amount: BigInt(status.largePool),  min: BigInt(status.minLarge),  perTicket:   700_000n, winner: "largeWinner",  prize: "largeAmt" },
+  }[kind];
+  if (!cfg) return "";
+
+  const history = [...latestWinnerHistory].sort((a, b) => Number(a.roundId) - Number(b.roundId));
+  const lastDrop = [...history].reverse().find(r => r[cfg.winner]?.length > 0 && BigInt(r[cfg.prize]) > 0n);
+  const fallbackStart = history[0]?.timestamp ?? status.roundStart;
+  const lastDropAt = lastDrop?.timestamp ?? fallbackStart;
+  const noDropText = `no drop for ${daysSinceText(lastDropAt)}`;
+
+  if (cfg.amount < cfg.min) return noDropText;
+
+  const events = history
+    .filter(r => !lastDrop || Number(r.roundId) > Number(lastDrop.roundId))
+    .map(r => ({ tickets: BigInt(r.ticketsSold), timestamp: r.timestamp }));
+  events.push({ tickets: BigInt(status.ticketsSold), timestamp: status.roundStart });
+
+  let running = cfg.amount;
+  let eligibleSince = status.roundStart;
+  for (const event of events.reverse()) {
+    const before = running - event.tickets * cfg.perTicket;
+    if (running >= cfg.min && before < cfg.min) {
+      eligibleSince = event.timestamp;
+      break;
+    }
+    running = before;
+  }
+
+  return `eligible for ${daysSinceText(eligibleSince)}, ${noDropText}`;
+}
+
+function mysteryStatusText(amount, min, chance, timeline = "") {
+  const suffix = timeline ? ` - ${timeline}` : "";
+  if (amount >= min) return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - eligible - ${chance} drop chance${suffix}`;
+  return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - not eligible${suffix}`;
 }
 
 // ── Countdown ──────────────────────────────────────────────────────────────
@@ -740,6 +781,7 @@ async function refreshStats() {
       cycled,
     );
     document.getElementById("stat-rounds").textContent  = String(history.length);
+    document.getElementById("stat-current-tickets").textContent = String(currentSold);
     document.getElementById("stat-tickets").textContent = String(tickets);
     document.getElementById("stat-payout").textContent  = e8sToIcp(payout);
   } catch (e) { console.error(e); }
@@ -1034,6 +1076,14 @@ function timeAgo(ns) {
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
   return `${Math.floor(sec/3600)}h ago`;
+}
+
+function daysSinceText(ns) {
+  const ms = Number(ns) / 1_000_000;
+  const days = Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
+  if (days === 0) return "today";
+  if (days === 1) return "1 day";
+  return `${days} days`;
 }
 
 function timeAgoFuture(ns) {
