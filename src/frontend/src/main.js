@@ -752,6 +752,7 @@ async function refreshTransparency() {
   let payoutNote = "none";
   let rollingUsage = null;
   let rollingFunding = null;
+  let cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n };
 
   if (lotteryHealth.status === "fulfilled") {
     const h = lotteryHealth.value;
@@ -771,6 +772,10 @@ async function refreshTransparency() {
     visibleCycles = (visibleCycles ?? 0n) + balance;
     dailyCycleUse = (dailyCycleUse ?? 0n) + absBigInt(settleDelta);
     lastTopUpAmount = BigInt(h.lastTopUpAmount);
+    cmcSummary = {
+      lastCmcError: h.lastCmcError,
+      lastTopUpAt: BigInt(h.lastTopUpAt),
+    };
     setText("health-treasury-cycles", formatCycles(balance));
     setText("health-frontend-cycles", formatKnownCycles(h.frontendCyclesKnown));
     setText("health-last-settle", formatCycleDelta(h.lastSettleCyclesDelta));
@@ -802,7 +807,7 @@ async function refreshTransparency() {
 
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
   renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage, rollingFunding);
-  if (transfers.status === "fulfilled") renderSettlementLog(transfers.value);
+  if (transfers.status === "fulfilled") renderSettlementLog(transfers.value, cmcSummary);
 }
 
 function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote) {
@@ -872,7 +877,7 @@ function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, l
   }
 }
 
-function renderSettlementLog(rows) {
+function renderSettlementLog(rows, cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n }) {
   const tbody = document.getElementById("settlement-log-tbody");
   if (!tbody) return;
   const payoutRows = rows.filter(r => r.note !== "Developer fee (2%)").slice(0, 10);
@@ -886,14 +891,45 @@ function renderSettlementLog(rows) {
       day: "2-digit", month: "short", year: "numeric",
     });
     const isTopUp = r.note === "Cycles top-up (10%)";
+    const blockOrStatus = isTopUp
+      ? renderTopUpStatus(r, cmcSummary)
+      : bi > 0
+        ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>`
+        : `<span class="muted-text">pending</span>`;
     return `<tr>
       <td>${r.note}</td>
       <td class="principal-short">${isTopUp ? "Cycles Minting" : shortPrincipal(r.to.toText())}</td>
       <td>${e8sToIcp(r.amount)}</td>
-      <td>${bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : `<span class="muted-text">pending</span>`}</td>
+      <td>${blockOrStatus}</td>
       <td>${date}</td>
     </tr>`;
   }).join("");
+}
+
+function renderTopUpStatus(record, cmcSummary) {
+  const rowTime = BigInt(record.timestamp);
+  const lastTopUpAt = BigInt(cmcSummary.lastTopUpAt ?? 0);
+  const status = cmcSummary.lastCmcError || "none";
+  const title = "CMC top-ups are tracked by cycles telemetry; this aggregate row has no single payout block.";
+
+  if (status === "ok" && lastTopUpAt >= rowTime) {
+    return `<span class="settlement-status success" title="${title}">performed</span>`;
+  }
+  if (status === "Processing") {
+    return `<span class="settlement-status warning" title="${title}">processing</span>`;
+  }
+  if (status !== "none" && status !== "ok") {
+    return `<span class="settlement-status danger" title="${escapeAttr(status)}">failed</span>`;
+  }
+  return `<span class="settlement-status muted" title="${title}">requested</span>`;
+}
+
+function escapeAttr(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function timeAgo(ns) {

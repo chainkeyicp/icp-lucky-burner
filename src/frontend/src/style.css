@@ -1035,6 +1035,38 @@ body {
 .settlement-log-table tr:last-child td {
   border-bottom: 0;
 }
+.settlement-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: .15rem .5rem;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+.settlement-status.success {
+  color: var(--green);
+  border-color: rgba(74,222,128,.32);
+  background: rgba(74,222,128,.08);
+}
+.settlement-status.warning {
+  color: var(--orange);
+  border-color: rgba(249,115,22,.35);
+  background: rgba(249,115,22,.08);
+}
+.settlement-status.danger {
+  color: #f87171;
+  border-color: rgba(248,113,113,.35);
+  background: rgba(248,113,113,.08);
+}
+.settlement-status.muted {
+  color: var(--text-muted);
+  border-color: rgba(148,163,184,.25);
+  background: rgba(148,163,184,.06);
+}
 .verification-head {
   display: flex;
   justify-content: space-between;
