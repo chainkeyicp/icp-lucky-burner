@@ -29,6 +29,7 @@ let ticketQty     = 1;
 let winnersOffset = 0;
 let lastRoundId   = 0;
 let lastTopUpToastAt = 0n;
+let latestRoundSnapshot = null;
 const WINNERS_PAGE = 20;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -221,10 +222,16 @@ async function buyTickets() {
   if (!lotteryActor) return;
   const btn = document.getElementById("buy-btn");
   const msg = document.getElementById("buy-msg");
+  const receipt = document.getElementById("purchase-receipt");
   btn.disabled = true;
   setMsg(msg, "", "");
+  if (receipt) {
+    receipt.classList.add("hidden");
+    receipt.innerHTML = "";
+  }
   openProgressOverlay();
   const topUpBaseline = await getTopUpBaseline();
+  const purchasedQty = ticketQty;
 
   try {
     if (!IS_LOCAL && ledgerActor) {
@@ -255,18 +262,20 @@ async function buyTickets() {
     const res = await lotteryActor.buyTickets(ticketQty);
 
     if ("ok" in res) {
-      setStep("step-buy", "done", `${ticketQty} ticket${ticketQty > 1 ? "s" : ""} registered`);
+      setStep("step-buy", "done", `${purchasedQty} ticket${purchasedQty > 1 ? "s" : ""} registered`);
       setStep("step-cycles", "active", "Performing top-up request...");
       // Top-up is finalized asynchronously by treasury; confirmation comes by polling telemetry.
       await sleep(650);
       setStep("step-cycles", "done", "Top-up request performed");
       await sleep(550);
       closeProgressOverlay();
-      toast(`Bought ${ticketQty} ticket${ticketQty > 1 ? "s" : ""}!`, "success");
+      toast(`Bought ${purchasedQty} ticket${purchasedQty > 1 ? "s" : ""}!`, "success");
       setMsg(msg, res.ok, "success");
       await refreshRound();
       await refreshLiveFeed();
+      await refreshLastWinner();
       await refreshStats();
+      renderPurchaseReceipt(purchasedQty, res.ok);
       watchCyclesTopUp(topUpBaseline);
     } else {
       setStep("step-buy", "error", res.err);
@@ -288,6 +297,27 @@ async function getTopUpBaseline() {
   } catch {
     return null;
   }
+}
+
+function renderPurchaseReceipt(purchasedQty, message) {
+  const el = document.getElementById("purchase-receipt");
+  const s = latestRoundSnapshot;
+  if (!el || !s) return;
+  const my = Number(s.myTickets);
+  const sold = Number(s.ticketsSold);
+  const pct = my > 0 && sold > 0 ? my / sold * 100 : 0;
+  const pctText = pct >= 1 ? `${pct.toFixed(1)}%` : `${pct.toFixed(2)}%`;
+  el.innerHTML = `
+    <div class="receipt-title">Ticket receipt</div>
+    <div class="receipt-grid">
+      <span>Round</span><strong>#${s.roundId}</strong>
+      <span>Registered</span><strong>${purchasedQty} ticket${purchasedQty > 1 ? "s" : ""}</strong>
+      <span>Your tickets</span><strong>${my} / 10</strong>
+      <span>Daily chance</span><strong>${pctText}</strong>
+      <span>Status</span><strong>${message}</strong>
+    </div>
+  `;
+  el.classList.remove("hidden");
 }
 
 async function watchCyclesTopUp(previousTopUpAt) {
@@ -336,6 +366,7 @@ async function refreshRound() {
 }
 
 async function renderRound(s) {
+  latestRoundSnapshot = s;
   const newRoundId = Number(s.roundId);
   if (lastRoundId !== 0 && newRoundId !== lastRoundId) {
     await refreshWinners();
@@ -678,38 +709,124 @@ function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
 
 async function refreshTransparency() {
   const { lottery, treasury } = makeAnonActors();
-  const [lotteryHealth, treasuryHealth, accounting] = await Promise.allSettled([
+  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases] = await Promise.allSettled([
     lottery.getCyclesHealth(),
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
+    lottery.getRoundStatus(),
+    lottery.getWinnerHistoryPaged(0, 1),
+    lottery.getRecentPurchases(),
   ]);
+
+  let visibleCycles = null;
+  let dailyCycleUse = null;
+  let lastTopUpAmount = null;
+  let latestPurchaseCount = null;
+  let currentRoundId = null;
+  let lastWinner = null;
+  let payoutError = "unknown";
+  let payoutNote = "none";
 
   if (lotteryHealth.status === "fulfilled") {
     const h = lotteryHealth.value;
-    setText("health-lottery-cycles", formatCycles(BigInt(h.balance)));
+    const balance = BigInt(h.balance);
+    const drawDelta = BigInt(h.lastDrawCyclesDelta);
+    visibleCycles = (visibleCycles ?? 0n) + balance;
+    dailyCycleUse = (dailyCycleUse ?? 0n) + absBigInt(drawDelta);
+    setText("health-lottery-cycles", formatCycles(balance));
     setText("health-last-buy", formatCycleDelta(h.lastBuyCyclesDelta));
     setText("health-last-draw", formatCycleDelta(h.lastDrawCyclesDelta));
   }
 
   if (treasuryHealth.status === "fulfilled") {
     const h = treasuryHealth.value;
-    setText("health-treasury-cycles", formatCycles(BigInt(h.balance)));
+    const balance = BigInt(h.balance);
+    const settleDelta = BigInt(h.lastSettleCyclesDelta);
+    visibleCycles = (visibleCycles ?? 0n) + balance;
+    dailyCycleUse = (dailyCycleUse ?? 0n) + absBigInt(settleDelta);
+    lastTopUpAmount = BigInt(h.lastTopUpAmount);
+    setText("health-treasury-cycles", formatCycles(balance));
     setText("health-last-settle", formatCycleDelta(h.lastSettleCyclesDelta));
+    setText("health-last-topup", lastTopUpAmount > 0n ? formatCycles(lastTopUpAmount) : "none yet");
     setText("health-cmc-status", h.lastCmcError === "none" ? "OK" : h.lastCmcError);
     setText("health-config-status", h.lotteryConfigured && h.frontendConfigured ? "OK" : "Incomplete");
   }
 
   if (accounting.status === "fulfilled") {
     const a = accounting.value;
+    payoutError = a.lastPayoutError;
+    payoutNote = a.lastPayoutNote || "none";
     setText("accounting-ledger-balance", e8sToIcp(BigInt(a.ledgerBalance)));
     setText("accounting-total-pools", e8sToIcp(BigInt(a.totalPools)));
     setText("accounting-buffer", e8sToIcp(BigInt(a.unallocatedBalance)));
     setText("accounting-deficit", e8sToIcp(BigInt(a.poolDeficit)));
-    setText("accounting-payout-status", a.lastPayoutError === "none" || a.lastPayoutError === "ok" ? "OK" : a.lastPayoutError);
-    setText("accounting-payout-note", a.lastPayoutNote || "none");
+    setText("settlement-payout-status", a.lastPayoutError === "none" || a.lastPayoutError === "ok" ? "OK" : a.lastPayoutError);
+    setText("accounting-payout-note", payoutNote);
     setText("accounting-small-eligibility", mysteryStatusText(BigInt(a.smallPool), BigInt(a.minSmall), "25%"));
     setText("accounting-medium-eligibility", mysteryStatusText(BigInt(a.mediumPool), BigInt(a.minMedium), "10%"));
     setText("accounting-large-eligibility", mysteryStatusText(BigInt(a.largePool), BigInt(a.minLarge), "3%"));
+  }
+
+  if (status.status === "fulfilled") currentRoundId = Number(status.value.roundId);
+  if (winners.status === "fulfilled" && winners.value.length > 0) lastWinner = winners.value[0];
+  if (purchases.status === "fulfilled" && purchases.value.length > 0) latestPurchaseCount = Number(purchases.value[0].count);
+
+  renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
+  renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount);
+}
+
+function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote) {
+  if (!lastWinner) {
+    setText("settlement-latest-round", "No draws yet");
+    setText("settlement-draw-status", currentRoundId ? `Round #${currentRoundId} active` : "Waiting");
+    setText("settlement-payout-status", payoutError === "unknown" ? "Waiting" : payoutError);
+    setText("settlement-mystery-status", "No drops yet");
+    return;
+  }
+
+  const settledRound = Number(lastWinner.roundId);
+  const hasMystery = lastWinner.smallWinner.length > 0 || lastWinner.mediumWinner.length > 0 || lastWinner.largeWinner.length > 0;
+  const noTickets = lastWinner.winner.toText() === "aaaaa-aa" && BigInt(lastWinner.amountWon) === 0n;
+  const drawStatus = currentRoundId && settledRound + 1 === currentRoundId
+    ? `Completed; round #${currentRoundId} active`
+    : "Completed";
+  const payoutStatus = noTickets
+    ? "No tickets; no payout"
+    : payoutError === "none" || payoutError === "ok"
+      ? "Completed"
+      : payoutError;
+  setText("settlement-latest-round", `#${settledRound}`);
+  setText("settlement-draw-status", drawStatus);
+  setText("settlement-payout-status", payoutStatus);
+  setText("settlement-mystery-status", hasMystery ? renderMysteryPlain(lastWinner) : "None dropped");
+  setText("accounting-payout-note", payoutNote || "none");
+}
+
+function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount) {
+  if (dailyCycleUse === null || dailyCycleUse === 0n) {
+    setText("autonomy-daily-use", "Waiting for first full draw");
+    setText("autonomy-ticket-need", "Waiting for telemetry");
+    setText("autonomy-runway", visibleCycles === null ? "Unknown" : "No daily cost yet");
+    setText("autonomy-basis", "Uses last draw + settle cycles after the first completed day.");
+    return;
+  }
+
+  setText("autonomy-daily-use", `${formatCycles(dailyCycleUse)} cycles`);
+  if (visibleCycles !== null) {
+    const days = Number(visibleCycles) / Number(dailyCycleUse);
+    setText("autonomy-runway", `${days.toFixed(days >= 10 ? 0 : 1)} days visible`);
+  } else {
+    setText("autonomy-runway", "Unknown");
+  }
+
+  if (lastTopUpAmount && lastTopUpAmount > 0n && latestPurchaseCount && latestPurchaseCount > 0) {
+    const cyclesPerTicket = lastTopUpAmount / BigInt(latestPurchaseCount);
+    const needed = cyclesPerTicket > 0n ? ceilDiv(dailyCycleUse, cyclesPerTicket) : 0n;
+    setText("autonomy-ticket-need", `${needed} ticket${needed === 1n ? "" : "s"}`);
+    setText("autonomy-basis", `Estimated from latest top-up (${formatCycles(lastTopUpAmount)} cycles) and latest visible purchase (${latestPurchaseCount} ticket${latestPurchaseCount > 1 ? "s" : ""}).`);
+  } else {
+    setText("autonomy-ticket-need", "Waiting for top-up");
+    setText("autonomy-basis", "Needs a recent top-up and visible purchase count to estimate cycles funded per ticket.");
   }
 }
 
@@ -880,6 +997,14 @@ function renderMysterySummary(r) {
   return items.length > 0 ? `<div class="mystery-pill-list">${items.join("")}</div>` : `<span class="muted-text">-</span>`;
 }
 
+function renderMysteryPlain(r) {
+  const items = [];
+  if (r.smallWinner.length > 0) items.push(`Small ${e8sToIcp(r.smallAmt)} -> ${shortPrincipal(r.smallWinner[0].toText())}`);
+  if (r.mediumWinner.length > 0) items.push(`Medium ${e8sToIcp(r.mediumAmt)} -> ${shortPrincipal(r.mediumWinner[0].toText())}`);
+  if (r.largeWinner.length > 0) items.push(`Large ${e8sToIcp(r.largeAmt)} -> ${shortPrincipal(r.largeWinner[0].toText())}`);
+  return items.join("; ");
+}
+
 document.getElementById("load-more-winners").addEventListener("click", async () => {
   const actor = lotteryActor ?? makeAnonActors().lottery;
   const more = await actor.getWinnerHistoryPaged(winnersOffset, WINNERS_PAGE).catch(() => []);
@@ -887,6 +1012,43 @@ document.getElementById("load-more-winners").addEventListener("click", async () 
 });
 
 function appendWinners(rows) {
+  const tbody = document.getElementById("winners-tbody");
+  const empty = tbody.querySelector(".empty-state");
+  if (empty) empty.parentElement.remove();
+
+  rows.forEach(r => {
+    const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+    const bi = Number(r.blockIndex);
+    const noTickets = r.winner.toText() === "aaaaa-aa" && Number(r.amountWon) === 0;
+    const mysteries = renderMysterySummary(r);
+
+    const tr = document.createElement("tr");
+    tr.style.cursor = noTickets ? "default" : "pointer";
+    if (!noTickets) tr.title = "Click for details";
+    tr.innerHTML = `
+      <td>#${r.roundId}</td>
+      <td class="principal-short">${noTickets ? `<span class="muted-text">No tickets</span>` : shortPrincipal(r.winner.toText())}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : e8sToIcp(r.amountWon)}</td>
+      <td>${mysteries}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : window._isDevMode ? "dev" : "pending"}</td>
+      <td>${date}</td>
+    `;
+    if (!noTickets) tr.addEventListener("click", e => {
+      if (e.target.tagName === "A") return;
+      showWinnerModal(r);
+    });
+    tbody.appendChild(tr);
+  });
+
+  winnersOffset += rows.length;
+  const btn = document.getElementById("load-more-winners");
+  if (rows.length === WINNERS_PAGE) btn.classList.remove("hidden");
+  else btn.classList.add("hidden");
+}
+
+function appendWinnersLegacy(rows) {
   const tbody = document.getElementById("winners-tbody");
   const empty = tbody.querySelector(".empty-state");
   if (empty) empty.parentElement.remove();
@@ -1011,6 +1173,14 @@ function formatCycleDelta(delta) {
   const n = Number(delta);
   const sign = n > 0 ? "+" : n < 0 ? "-" : "";
   return `${sign}${formatCycles(BigInt(Math.abs(n)))} cycles`;
+}
+
+function absBigInt(n) {
+  return n < 0n ? -n : n;
+}
+
+function ceilDiv(a, b) {
+  return (a + b - 1n) / b;
 }
 
 function shortPrincipal(p) {

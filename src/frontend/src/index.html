@@ -58,6 +58,11 @@
         </div>
       </div>
 
+      <div class="lottery-intro">
+        <strong>Daily on-chain draw.</strong>
+        <span>Buy tickets for the daily prize; mystery pools can drop separately after the draw, with separate winners and automatic payouts.</span>
+      </div>
+
       <!-- Last winner -->
       <div class="last-winner-card">
         <div class="last-winner-head">
@@ -157,6 +162,7 @@
             </div>
             <button id="buy-btn" class="btn btn-primary btn-lg">Buy Tickets</button>
             <p id="buy-msg" class="buy-msg"></p>
+            <div id="purchase-receipt" class="purchase-receipt hidden"></div>
           </div>
 
           <div class="tickets-sold-info">
@@ -333,19 +339,33 @@
               <h4>Cycles</h4>
               <div class="health-row"><span>Lottery</span><strong id="health-lottery-cycles">Loading...</strong></div>
               <div class="health-row"><span>Treasury</span><strong id="health-treasury-cycles">Loading...</strong></div>
-              <div class="health-row"><span>Frontend</span><strong>dfx status</strong></div>
+              <div class="health-row"><span>Frontend</span><strong id="health-frontend-cycles">Not query-exposed</strong></div>
               <div class="health-row"><span>Last buy</span><strong id="health-last-buy">Loading...</strong></div>
               <div class="health-row"><span>Last draw</span><strong id="health-last-draw">Loading...</strong></div>
               <div class="health-row"><span>Last settle</span><strong id="health-last-settle">Loading...</strong></div>
+              <div class="health-row"><span>Last top-up</span><strong id="health-last-topup">Loading...</strong></div>
             </div>
             <div class="health-panel">
-              <h4>Treasury</h4>
+              <h4>Settlement</h4>
+              <div class="health-row"><span>Latest settled round</span><strong id="settlement-latest-round">Loading...</strong></div>
+              <div class="health-row"><span>Draw status</span><strong id="settlement-draw-status">Loading...</strong></div>
+              <div class="health-row"><span>Payout status</span><strong id="settlement-payout-status">Loading...</strong></div>
+              <div class="health-row"><span>Mystery status</span><strong id="settlement-mystery-status">Loading...</strong></div>
+              <div class="health-row"><span>Payout note</span><strong id="accounting-payout-note">Loading...</strong></div>
+            </div>
+            <div class="health-panel">
+              <h4>Treasury Accounting</h4>
               <div class="health-row"><span>Ledger balance</span><strong id="accounting-ledger-balance">Loading...</strong></div>
               <div class="health-row"><span>Reserved pools</span><strong id="accounting-total-pools">Loading...</strong></div>
               <div class="health-row"><span>Buffer</span><strong id="accounting-buffer">Loading...</strong></div>
               <div class="health-row"><span>Deficit</span><strong id="accounting-deficit">Loading...</strong></div>
-              <div class="health-row"><span>Payout</span><strong id="accounting-payout-status">Loading...</strong></div>
-              <div class="health-row"><span>Payout note</span><strong id="accounting-payout-note">Loading...</strong></div>
+            </div>
+            <div class="health-panel">
+              <h4>Autonomy Estimate</h4>
+              <div class="health-row"><span>Daily cycles used</span><strong id="autonomy-daily-use">Loading...</strong></div>
+              <div class="health-row"><span>Tickets needed/day</span><strong id="autonomy-ticket-need">Loading...</strong></div>
+              <div class="health-row"><span>Visible runway</span><strong id="autonomy-runway">Loading...</strong></div>
+              <div class="health-row stacked"><span>Basis</span><strong id="autonomy-basis">Loading...</strong></div>
             </div>
             <div class="health-panel">
               <h4>Mystery Eligibility</h4>
