@@ -14,7 +14,7 @@ const canisters = {
   },
   treasury: {
     id: "msox6-nyaaa-aaaal-qw54q-cai",
-    moduleHash: "0xa17d9ff20c5b052304d3b613ba3524002cb3664d959722363a3ca9eaf161f39b",
+    moduleHash: "0x59166b503ea502b6016822de8f515f434546a7dc007816c52977631b39508b77",
   },
   frontend: {
     id: "m4m2w-wiaaa-aaaal-qw55q-cai",
