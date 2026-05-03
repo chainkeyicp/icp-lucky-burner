@@ -10,11 +10,11 @@ const githubUrl = "https://github.com/chainkeyicp/icp-lucky-burner";
 const canisters = {
   lottery: {
     id: "m3n4c-3qaaa-aaaal-qw55a-cai",
-    moduleHash: "0x06363d1e7ce7287761d2f12fdb711acd184e44998df687a08370523f71eda6c8",
+    moduleHash: "0x8b11612d2d8da3dcf263c577374c69a61e00fb12600c0811656f20cf9d0adf90",
   },
   treasury: {
     id: "msox6-nyaaa-aaaal-qw54q-cai",
-    moduleHash: "0x59166b503ea502b6016822de8f515f434546a7dc007816c52977631b39508b77",
+    moduleHash: "0x4b00c2f38c47337590739857f574d9ab458c7e756d11d61bc6a10fd770096b5c",
   },
   frontend: {
     id: "m4m2w-wiaaa-aaaal-qw55q-cai",
