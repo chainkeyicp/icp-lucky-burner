@@ -24,6 +24,10 @@ jobs:
         working-directory: src/frontend
         run: npm ci
 
+      - name: Build frontend assets
+        working-directory: src/frontend
+        run: npm run build -- --mode ic
+
       - name: Build canisters
         run: dfx build --network ic
 
