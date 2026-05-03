@@ -17,8 +17,6 @@ import Cycles "mo:base/ExperimentalCycles";
 import Treasury "canister:treasury";
 
 persistent actor Lottery {
-  stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
-
   transient let TICKET_PRICE_E8S : Nat64 = 10_000_000; // 0.1 ICP
   transient let TICKET_PRICE     : Nat   = 10_000_000;
   transient let MAX_TICKETS      : Nat   = 10;
@@ -70,7 +68,6 @@ persistent actor Lottery {
     minLarge    : Nat64;
     roundStart  : Int;
     roundEnd    : Int;
-    isDevMode   : Bool;
   };
 
   public type PurchaseRecord = {
@@ -131,7 +128,6 @@ persistent actor Lottery {
 
   stable var currentRound         : Nat  = 1;
   stable var roundStartTime       : Int  = Time.now();
-  stable var isDevMode            : Bool = false;
   stable var winnerHistory        : [WinnerRecord] = [];
   stable var ticketEntries        : [(Principal, Nat)] = [];
   stable var ticketPoolArr        : [Principal] = [];
@@ -178,8 +174,6 @@ persistent actor Lottery {
     tickets   := HashMap.fromIter(ticketEntries.vals(), 16, Principal.equal, Principal.hash);
     ticketBuf := Buffer.Buffer<Principal>(100);
     for (p in ticketPoolArr.vals()) ticketBuf.add(p);
-    admin     := Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
-    isDevMode := false;
     scheduleNextDraw<system>();
   };
 
@@ -391,7 +385,7 @@ persistent actor Lottery {
       );
     };
 
-    if (not isDevMode) {
+    do {
       let totalAmount = count * TICKET_PRICE;
       let treasuryId  = Principal.fromActor(Treasury);
       let payResult   = await ledger.icrc2_transfer_from({
@@ -441,23 +435,6 @@ persistent actor Lottery {
         Nat.toText(existing + count) # "/10.")
   };
 
-  public shared ({ caller }) func setAdmin(p : Principal) : async () {
-    assert Principal.equal(caller, admin);
-    admin := p;
-  };
-
-  public shared func devEndDay() : async Result.Result<Text, Text> {
-    if (not isDevMode) return #err("Not in dev mode");
-    await draw();
-    #ok("Day ended → Round #" # Nat.toText(currentRound))
-  };
-
-  public shared ({ caller }) func setDevMode(enabled : Bool) : async () {
-    assert Principal.equal(caller, admin);
-    isDevMode := enabled;
-    if (not enabled) scheduleNextDraw<system>();
-  };
-
   public shared query ({ caller }) func getRoundStatus() : async RoundStatus {
     let myT = switch (tickets.get(caller)) { case (?n) n; case null 0 };
     {
@@ -471,7 +448,6 @@ persistent actor Lottery {
       minMedium  = cachedMinMedium;
       minLarge   = cachedMinLarge;
       roundStart = roundStartTime; roundEnd = roundStartTime + DAY_NANOS;
-      isDevMode;
     }
   };
 

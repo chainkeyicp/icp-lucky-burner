@@ -96,15 +96,9 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     getPools:                IDL.Func([], [Pools], ["query"]),
     getTreasuryAccounting:   IDL.Func([], [TreasuryAccounting], ["query"]),
     getMyWinnings:           IDL.Func([IDL.Principal], [IDL.Nat64], ["query"]),
-    refreshTreasuryAccounting: IDL.Func([], [TreasuryAccounting], []),
     getTransferHistory:      IDL.Func([], [IDL.Vec(TransferRecord)], ["query"]),
     getTransferHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TransferRecord)], ["query"]),
     getTopUpAuditHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TopUpAuditRecord)], ["query"]),
     getPendingPayouts:     IDL.Func([], [IDL.Vec(PendingPayout)], ["query"]),
-    setCmcAccountIds:        IDL.Func([IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8)], [], []),
-    setDevMode:              IDL.Func([IDL.Bool], [], []),
-    setDevPrincipal:         IDL.Func([IDL.Text], [], []),
-    setFrontendCanister:     IDL.Func([IDL.Principal], [], []),
-    setLotteryCanister:      IDL.Func([IDL.Principal], [], []),
   });
 };

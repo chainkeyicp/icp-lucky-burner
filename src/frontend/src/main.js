@@ -39,7 +39,6 @@ const WINNERS_PAGE = 20;
 setupNav();
 setupGlobalActions();
 setupQty();
-setupDevPanel();
 startCountdown();
 initAsync();
 
@@ -177,30 +176,6 @@ function setupGlobalActions() {
   overlay.addEventListener("click", () => closeModal());
   overlay.querySelector(".modal").addEventListener("click", e => e.stopPropagation());
   document.getElementById("modal-close").addEventListener("click", () => closeModal());
-}
-
-// ── Dev panel ──────────────────────────────────────────────────────────────
-
-function setupDevPanel() {
-  if (!IS_LOCAL) return;
-  document.getElementById("dev-panel").classList.remove("hidden");
-  document.getElementById("dev-end-day").addEventListener("click", async () => {
-    const btn = document.getElementById("dev-end-day");
-    const msg = document.getElementById("dev-msg");
-    if (!lotteryActor) { msg.textContent = "Login first"; return; }
-    btn.disabled = true;
-    msg.textContent = "Processing...";
-    try {
-      const res = await lotteryActor.devEndDay();
-      msg.textContent = "ok" in res ? res.ok : res.err;
-      await refreshRound();
-      await refreshWinners();
-      await refreshBalance();
-    } catch (e) {
-      msg.textContent = String(e);
-    }
-    btn.disabled = false;
-  });
 }
 
 // ── Ticket qty selector ────────────────────────────────────────────────────
@@ -483,7 +458,6 @@ async function renderRound(s) {
   if (ticketQty > remaining) { ticketQty = Math.max(1, remaining); renderQty(); }
 
   window._roundEnd  = Number(s.roundEnd);
-  window._isDevMode = s.isDevMode;
 }
 
 async function checkWinnerNotifications() {
@@ -1230,7 +1204,7 @@ function renderLastWinner(r) {
       <td class="principal-short">${noTickets ? `<span class="muted-text">No tickets</span>` : shortPrincipal(r.winner.toText())}</td>
       <td>${noTickets ? `<span class="muted-text">-</span>` : e8sToIcp(r.amountWon)}</td>
       <td>${mysteries}</td>
-      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : window._isDevMode ? "dev" : "pending"}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : "pending"}</td>
       <td>${date}</td>
     </tr>
   `;
@@ -1290,7 +1264,7 @@ function appendWinners(rows) {
       <td class="principal-short">${noTickets ? `<span class="muted-text">No tickets</span>` : shortPrincipal(r.winner.toText())}</td>
       <td>${noTickets ? `<span class="muted-text">-</span>` : e8sToIcp(r.amountWon)}</td>
       <td>${mysteries}</td>
-      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : window._isDevMode ? "dev" : "pending"}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : "pending"}</td>
       <td>${date}</td>
     `;
     if (!noTickets) tr.addEventListener("click", e => {
@@ -1333,7 +1307,7 @@ function appendWinnersLegacy(rows) {
       <td class="principal-short">${noTickets ? `<span style="color:var(--text-muted)">No tickets</span>` : shortPrincipal(r.winner.toText())}</td>
       <td>${noTickets ? `<span style="color:var(--text-muted)">—</span>` : e8sToIcp(r.amountWon)}</td>
       <td>${mysteries || `<span style="color:var(--text-muted)">—</span>`}</td>
-      <td><span style="color:var(--text-muted)">${noTickets ? "—" : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : window._isDevMode ? "dev" : "pending"}</span></td>
+      <td><span style="color:var(--text-muted)">${noTickets ? "—" : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : "pending"}</span></td>
       <td>${date}</td>
     `;
     if (!noTickets) tr.addEventListener("click", e => {

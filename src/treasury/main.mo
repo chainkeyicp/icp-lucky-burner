@@ -12,8 +12,6 @@ import Cycles "mo:base/ExperimentalCycles";
 import Timer "mo:base/Timer";
 
 persistent actor Treasury {
-  stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
-
   // ── Canister IDs ───────────────────────────────────────────────────────────
 
   transient let LEDGER_ID  : Text = "ryjl3-tyaaa-aaaaa-aaaba-cai";
@@ -22,6 +20,7 @@ persistent actor Treasury {
   transient let MAX_TRANSFER_HISTORY : Nat = 1_000;
   transient let MAX_PAYOUT_RETRIES : Nat = 10;
   transient let PAYOUT_RETRY_INTERVAL_NANOS : Nat = 300_000_000_000; // 5 minutes
+  transient let DEV_PRINCIPAL : Text = "njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae";
 
   // ── Actor types ────────────────────────────────────────────────────────────
 
@@ -156,9 +155,7 @@ persistent actor Treasury {
   stable var smallPool       : Nat64 = 0;
   stable var mediumPool      : Nat64 = 0;
   stable var largePool       : Nat64 = 0;
-  stable var devPrincipal    : Text  = "njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae";
-  stable var isDevMode       : Bool  = false;
-  stable var lotteryPrincipal : ?Principal = null;
+  stable var lotteryPrincipal : ?Principal = ?Principal.fromText("m3n4c-3qaaa-aaaal-qw55a-cai");
   stable var frontendPrincipal : ?Principal = ?Principal.fromText("m4m2w-wiaaa-aaaal-qw55q-cai");
   stable var transferHistory : [TransferRecord] = [];
   stable var lastCmcError    : Text = "none";
@@ -191,9 +188,6 @@ persistent actor Treasury {
   };
 
   system func postupgrade() {
-    admin        := Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
-    devPrincipal := "njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae";
-    isDevMode    := false;
     cmcLotteryAccountId  := ?Blob.fromArray([46,7,15,5,226,247,37,177,20,92,19,19,237,155,195,39,113,37,21,167,226,175,174,17,205,201,219,254,107,16,176,114]);
     cmcTreasuryAccountId := ?Blob.fromArray([252,7,177,91,47,178,11,179,214,34,155,200,128,52,109,192,177,58,212,155,147,84,79,83,231,90,197,72,111,169,31,209]);
     cmcFrontendAccountId := ?Blob.fromArray([196,138,80,230,198,178,78,66,160,253,131,229,121,56,69,231,45,127,59,62,207,197,50,72,11,201,199,223,235,239,202,237]);
@@ -202,44 +196,12 @@ persistent actor Treasury {
 
   // ── Admin ──────────────────────────────────────────────────────────────────
 
-  public shared ({ caller }) func setAdmin(p : Principal) : async () {
-    assert Principal.equal(caller, admin);
-    admin := p;
-  };
-
-  public shared ({ caller }) func setDevMode(b : Bool) : async () {
-    assert Principal.equal(caller, admin);
-    isDevMode := b;
-  };
-
-  public shared ({ caller }) func setDevPrincipal(p : Text) : async () {
-    assert Principal.equal(caller, admin);
-    devPrincipal := p;
-  };
-
-  public shared ({ caller }) func setLotteryCanister(p : Principal) : async () {
-    assert Principal.equal(caller, admin);
-    lotteryPrincipal := ?p;
-  };
-
-  public shared ({ caller }) func setFrontendCanister(p : Principal) : async () {
-    assert Principal.equal(caller, admin);
-    frontendPrincipal := ?p;
-  };
-
-  public shared ({ caller }) func setCmcAccountIds(lottery : Blob, treasury : Blob, frontend : Blob) : async () {
-    assert Principal.equal(caller, admin);
-    cmcLotteryAccountId := ?lottery;
-    cmcTreasuryAccountId := ?treasury;
-    cmcFrontendAccountId := ?frontend;
-  };
-
   // ── Auth helper ────────────────────────────────────────────────────────────
 
   func assertLottery(caller : Principal) {
     switch lotteryPrincipal {
       case (?lp) { assert Principal.equal(caller, lp) };
-      case null  { assert Principal.equal(caller, admin) };
+      case null  { assert false };
     };
   };
 
@@ -250,7 +212,7 @@ persistent actor Treasury {
   // Then call notify_top_up(block_index, canister_id).
 
   // CMC account IDs are computed off-chain (SHA224 not available in Motoko base)
-  // and set via setCmcAccountIds after deploy.
+  // and hardcoded here before production deploy.
 
   // CMC account IDs: accountIdentifier(CMC, principalToSubaccount(canisterId))
   // Lottery  (m3n4c-3qaaa-aaaal-qw55a-cai): 2e070f05e2f725b1145c1313ed9bc327712515a7e2afae11cdc9dbfe6b10b072
@@ -264,7 +226,7 @@ persistent actor Treasury {
     if (amount == 0 or amount <= Nat64.fromNat(LEDGER_FEE)) return false;
     switch accountId {
       case null {
-        lastCmcError := "CMC account ID not set — call setCmcAccountIds first";
+        lastCmcError := "CMC account ID not configured";
         recordTopUpAudit(canisterId, canisterName, amount, 0, 0, 0, "failed", lastCmcError);
         return false;
       };
@@ -362,7 +324,7 @@ persistent actor Treasury {
 
     logTopUp(cycles10);
 
-    if (not isDevMode) {
+    do {
       // Fire-and-forget top-up and dev fee — don't block the caller
       let lotteryShare  = cycles10 * 45 / 100;
       let frontendShare = cycles10 * 20 / 100;
@@ -391,7 +353,7 @@ persistent actor Treasury {
         let _ = await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), "Treasury", treasuryShare + fallbackLottery + fallbackFrontend);
         if (Nat64.toNat(dev2) > LEDGER_FEE) {
           let devRes = await ledger.icrc1_transfer({
-            to              = { owner = Principal.fromText(devPrincipal); subaccount = null };
+            to              = { owner = Principal.fromText(DEV_PRINCIPAL); subaccount = null };
             amount          = Nat64.toNat(dev2) - LEDGER_FEE;
             fee             = ?LEDGER_FEE;
             memo            = null;
@@ -443,7 +405,7 @@ persistent actor Treasury {
     let dp = dailyPool;
     dailyPool := 0;
 
-    if (isDevMode) {
+    if (false) {
       record(dailyWinner, dp, "Daily Prize (dev mode)");
       switch smallWinner  { case (?w) { let s = smallPool;  smallPool  := 0; record(w, s, "Small Mystery (dev mode)") };  case null {} };
       switch mediumWinner { case (?w) { let m = mediumPool; mediumPool := 0; record(w, m, "Medium Mystery (dev mode)") }; case null {} };
@@ -679,7 +641,7 @@ persistent actor Treasury {
 
   func recordDev(amount : Nat64) {
     if (amount == 0) return;
-    record(Principal.fromText(devPrincipal), amount, "Developer fee (2%)");
+    record(Principal.fromText(DEV_PRINCIPAL), amount, "Developer fee (2%)");
   };
 
   func logTopUp(amount : Nat64) {
@@ -860,17 +822,6 @@ persistent actor Treasury {
   public query func getFundingStats(limit : Nat) : async FundingStats {
     fundingStats(limit)
   };
-
-  public shared func refreshTreasuryAccounting() : async TreasuryAccounting {
-    let balance = await ledger.icrc1_balance_of({
-      owner = Principal.fromActor(Treasury);
-      subaccount = null;
-    });
-    cachedLedgerBalance := balance;
-    cachedLedgerBalanceAt := Time.now();
-    treasuryAccounting(balance)
-  };
-
 
   public query func getTransferHistory() : async [TransferRecord] {
     let t = transferHistory.size();

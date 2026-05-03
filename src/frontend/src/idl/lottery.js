@@ -29,7 +29,6 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     minLarge:    IDL.Nat64,
     roundStart:  IDL.Int,
     roundEnd:    IDL.Int,
-    isDevMode:   IDL.Bool,
   });
 
   const PurchaseRecord = IDL.Record({
@@ -66,8 +65,6 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     buyTickets:            IDL.Func([IDL.Nat],          [Result],        []),
     getRecentPurchases:    IDL.Func([],                 [IDL.Vec(PurchaseRecord)], ["query"]),
     getRoundTickets:       IDL.Func([IDL.Nat],          [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Nat))], ["query"]),
-    devEndDay:             IDL.Func([],                 [Result],        []),
-    setDevMode:            IDL.Func([IDL.Bool],         [],              []),
     getRoundStatus:        IDL.Func([],                 [RoundStatus],   ["query"]),
     getCyclesHealth:       IDL.Func([],                 [CyclesHealth],  ["query"]),
     getAutonomyUsageStats: IDL.Func([IDL.Nat],          [AutonomyUsageStats], ["query"]),
