@@ -110,7 +110,7 @@
 
           <div id="login-prompt" class="login-prompt">
             <p>Login with Internet Identity to participate</p>
-            <button class="btn btn-primary" onclick="document.getElementById('login-btn').click()">Login</button>
+            <button class="btn btn-primary login-forward-btn">Login</button>
           </div>
 
           <div id="buy-section" class="hidden">
@@ -167,7 +167,7 @@
 
         <div id="wallet-login-prompt" class="login-prompt">
           <p>Login to view your wallet</p>
-          <button class="btn btn-primary" onclick="document.getElementById('login-btn').click()">Login</button>
+          <button class="btn btn-primary login-forward-btn">Login</button>
         </div>
 
         <div id="wallet-content" class="hidden">
@@ -356,9 +356,9 @@
   </main>
 
   <!-- Winner detail modal -->
-  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal()">
-    <div class="modal" onclick="event.stopPropagation()">
-      <button class="modal-close" onclick="closeModal()">✕</button>
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <button class="modal-close" id="modal-close">✕</button>
       <h3 id="modal-title">Round</h3>
       <div id="modal-body"></div>
     </div>

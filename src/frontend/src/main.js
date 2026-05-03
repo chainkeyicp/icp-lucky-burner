@@ -33,6 +33,7 @@ const WINNERS_PAGE = 20;
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 setupNav();
+setupGlobalActions();
 setupQty();
 setupDevPanel();
 startCountdown();
@@ -150,6 +151,17 @@ function setupNav() {
 
 function activePage() {
   return document.querySelector(".page.active")?.id?.replace("page-", "") ?? "lottery";
+}
+
+function setupGlobalActions() {
+  document.querySelectorAll(".login-forward-btn").forEach(btn => {
+    btn.addEventListener("click", () => document.getElementById("login-btn").click());
+  });
+
+  const overlay = document.getElementById("modal-overlay");
+  overlay.addEventListener("click", () => closeModal());
+  overlay.querySelector(".modal").addEventListener("click", e => e.stopPropagation());
+  document.getElementById("modal-close").addEventListener("click", () => closeModal());
 }
 
 // ── Dev panel ──────────────────────────────────────────────────────────────
