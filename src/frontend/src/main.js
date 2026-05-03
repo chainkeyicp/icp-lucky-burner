@@ -769,7 +769,7 @@ async function showWinnerModal(record) {
         const headerRight = isHistorical ? `${total} tickets total` : `${walletCount} wallet${walletCount > 1 ? "s" : ""} · ${total} tickets`;
         participantsHtml = `
           <div class="modal-participants">
-            <div class="mp-header"><span>${isHistorical ? "Winner" : "Participants"}</span><span>${headerRight}</span></div>
+            <div class="mp-header"><span>${isHistorical ? "Daily Winner" : "Participants"}</span><span>${headerRight}</span></div>
             ${rows}
           </div>`;
       }
