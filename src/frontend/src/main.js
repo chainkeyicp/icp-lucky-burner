@@ -301,21 +301,40 @@ async function getTopUpBaseline() {
   }
 }
 
-function renderBuildVerification() {
-  setText("build-git-commit", BUILD_INFO.gitCommit);
+async function loadDeploymentManifest() {
+  try {
+    const res = await fetch(`/deployment-manifest.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`manifest ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.warn("deployment manifest unavailable; using build-info fallback", e);
+    return BUILD_INFO;
+  }
+}
+
+async function renderBuildVerification() {
+  const info = await loadDeploymentManifest();
+  const commitText = info.gitCommit ? `${info.gitCommit.slice(0, 12)}${info.gitDirty ? " + dirty build" : ""}` : "Unknown";
+  setText("build-git-commit", commitText);
+  const generatedAt = document.getElementById("build-generated-at");
+  if (generatedAt) {
+    generatedAt.textContent = info.generatedAt
+      ? `Manifest generated ${new Date(info.generatedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+      : "Using build-info fallback";
+  }
   const commitLink = document.getElementById("build-commit-link");
   if (commitLink) {
-    commitLink.href = `${BUILD_INFO.githubUrl}/tree/${BUILD_INFO.gitCommit}`;
-    commitLink.textContent = "Open source at this commit";
+    commitLink.href = info.sourceUrl || `${info.githubUrl}/tree/${info.gitCommit}`;
+    commitLink.textContent = info.verificationRunUrl ? "Open source and CI" : "Open source at this commit";
   }
 
   const tbody = document.getElementById("build-canisters-tbody");
   if (!tbody) return;
-  tbody.innerHTML = Object.entries(BUILD_INFO.canisters).map(([name, info]) => `
+  tbody.innerHTML = Object.entries(info.canisters).map(([name, canister]) => `
     <tr>
       <td>${name}</td>
-      <td><code>${info.id}</code></td>
-      <td><code>${info.moduleHash}</code></td>
+      <td><code>${canister.id}</code></td>
+      <td><code>${canister.moduleHash}</code></td>
     </tr>
   `).join("");
 }
@@ -730,7 +749,7 @@ function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
 
 async function refreshTransparency() {
   const { lottery, treasury } = makeAnonActors();
-  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers, usageStats, fundingStats] = await Promise.allSettled([
+  const [lotteryHealth, treasuryHealth, accounting, status, winners, purchases, transfers, topUpAudits, usageStats, fundingStats] = await Promise.allSettled([
     lottery.getCyclesHealth(),
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
@@ -738,6 +757,7 @@ async function refreshTransparency() {
     lottery.getWinnerHistoryPaged(0, 1),
     lottery.getRecentPurchases(),
     treasury.getTransferHistoryPaged(0, 12),
+    treasury.getTopUpAuditHistoryPaged(0, 18),
     lottery.getAutonomyUsageStats(7),
     treasury.getFundingStats(21),
   ]);
@@ -807,7 +827,9 @@ async function refreshTransparency() {
 
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
   renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage, rollingFunding);
-  if (transfers.status === "fulfilled") renderSettlementLog(transfers.value, cmcSummary);
+  if (transfers.status === "fulfilled") {
+    renderSettlementLog(transfers.value, topUpAudits.status === "fulfilled" ? topUpAudits.value : [], cmcSummary);
+  }
 }
 
 function renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote) {
@@ -877,51 +899,74 @@ function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, l
   }
 }
 
-function renderSettlementLog(rows, cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n }) {
+function renderSettlementLog(rows, topUpAudits = [], cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n }) {
   const tbody = document.getElementById("settlement-log-tbody");
   if (!tbody) return;
-  const payoutRows = rows.filter(r => r.note !== "Developer fee (2%)").slice(0, 10);
-  if (payoutRows.length === 0) {
+  const payoutEntries = rows
+    .filter(r => r.note !== "Developer fee (2%)" && r.note !== "Cycles top-up (10%)")
+    .map(r => ({ kind: "transfer", timestamp: BigInt(r.timestamp), record: r }));
+  const auditEntries = topUpAudits
+    .map(r => ({ kind: "topup", timestamp: BigInt(r.timestamp), record: r }));
+  const entries = [...payoutEntries, ...auditEntries]
+    .sort((a, b) => a.timestamp === b.timestamp ? 0 : a.timestamp > b.timestamp ? -1 : 1)
+    .slice(0, 10);
+  if (entries.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No treasury movements yet</td></tr>`;
     return;
   }
-  tbody.innerHTML = payoutRows.map(r => {
+  tbody.innerHTML = entries.map(entry => entry.kind === "topup"
+    ? renderTopUpAuditRow(entry.record, cmcSummary)
+    : renderTransferAuditRow(entry.record)
+  ).join("");
+}
+
+function renderTransferAuditRow(r) {
     const bi = Number(r.blockIndex);
     const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
     });
-    const isTopUp = r.note === "Cycles top-up (10%)";
-    const blockOrStatus = isTopUp
-      ? renderTopUpStatus(r, cmcSummary)
-      : bi > 0
-        ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>`
-        : `<span class="muted-text">pending</span>`;
     return `<tr>
       <td>${r.note}</td>
-      <td class="principal-short">${isTopUp ? "Cycles Minting" : shortPrincipal(r.to.toText())}</td>
+      <td class="principal-short">${shortPrincipal(r.to.toText())}</td>
       <td>${e8sToIcp(r.amount)}</td>
-      <td>${blockOrStatus}</td>
+      <td>${bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : `<span class="muted-text">pending</span>`}</td>
       <td>${date}</td>
     </tr>`;
-  }).join("");
 }
 
-function renderTopUpStatus(record, cmcSummary) {
-  const rowTime = BigInt(record.timestamp);
-  const lastTopUpAt = BigInt(cmcSummary.lastTopUpAt ?? 0);
-  const status = cmcSummary.lastCmcError || "none";
-  const title = "CMC top-ups are tracked by cycles telemetry; this aggregate row has no single payout block.";
+function renderTopUpAuditRow(r, cmcSummary) {
+  const bi = Number(r.blockIndex);
+  const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+  const status = r.status || "requested";
+  const statusBadge = renderTopUpStatus(status, r.error, cmcSummary);
+  const block = bi > 0
+    ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>`
+    : `<span class="muted-text">no block</span>`;
+  return `<tr>
+    <td>Cycles top-up</td>
+    <td class="principal-short">${r.canisterName}</td>
+    <td>${e8sToIcp(r.amount)}</td>
+    <td><span class="topup-block-status">${block}${statusBadge}</span></td>
+    <td>${date}</td>
+  </tr>`;
+}
 
-  if (status === "ok" && lastTopUpAt >= rowTime) {
-    return `<span class="settlement-status success" title="${title}">performed</span>`;
+function renderTopUpStatus(status, error, cmcSummary) {
+  const cmcStatus = cmcSummary.lastCmcError || "none";
+  const title = error || `CMC status: ${cmcStatus}`;
+
+  if (status === "performed") {
+    return `<span class="settlement-status success" title="${escapeAttr(title)}">performed</span>`;
   }
-  if (status === "Processing") {
-    return `<span class="settlement-status warning" title="${title}">processing</span>`;
+  if (status === "processing" || cmcStatus === "Processing") {
+    return `<span class="settlement-status warning" title="${escapeAttr(title)}">processing</span>`;
   }
-  if (status !== "none" && status !== "ok") {
-    return `<span class="settlement-status danger" title="${escapeAttr(status)}">failed</span>`;
+  if (status === "failed") {
+    return `<span class="settlement-status danger" title="${escapeAttr(title)}">failed</span>`;
   }
-  return `<span class="settlement-status muted" title="${title}">requested</span>`;
+  return `<span class="settlement-status muted" title="${escapeAttr(title)}">requested</span>`;
 }
 
 function escapeAttr(value) {

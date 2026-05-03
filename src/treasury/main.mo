@@ -75,6 +75,18 @@ persistent actor Treasury {
     note       : Text;
   };
 
+  public type TopUpAuditRecord = {
+    canister     : Principal;
+    canisterName : Text;
+    amount       : Nat64;
+    netAmount    : Nat64;
+    blockIndex   : Nat64;
+    cyclesMinted : Nat;
+    timestamp    : Int;
+    status       : Text;
+    error        : Text;
+  };
+
   public type SettleOk = { amountWon : Nat64; blockIndex : Nat64 };
 
   public type CyclesHealth = {
@@ -136,6 +148,7 @@ persistent actor Treasury {
   stable var frontendCyclesKnown : Nat = 0;
   stable var frontendCyclesUpdatedAt : Int = 0;
   stable var topUpCycleHistory : [(Int, Nat)] = [];
+  stable var topUpAuditHistory : [TopUpAuditRecord] = [];
   stable var lastSettleCyclesBefore : Nat = 0;
   stable var lastSettleCyclesAfter  : Nat = 0;
   stable var lastPayoutError : Text = "none";
@@ -220,11 +233,12 @@ persistent actor Treasury {
   stable var cmcTreasuryAccountId : ?Blob = ?Blob.fromArray([252,7,177,91,47,178,11,179,214,34,155,200,128,52,109,192,177,58,212,155,147,84,79,83,231,90,197,72,111,169,31,209]);
   stable var cmcFrontendAccountId : ?Blob = ?Blob.fromArray([196,138,80,230,198,178,78,66,160,253,131,229,121,56,69,231,45,127,59,62,207,197,50,72,11,201,199,223,235,239,202,237]);
 
-  func topUpCanister(accountId : ?Blob, canisterId : Principal, amount : Nat64) : async Bool {
+  func topUpCanister(accountId : ?Blob, canisterId : Principal, canisterName : Text, amount : Nat64) : async Bool {
     if (amount == 0 or amount <= Nat64.fromNat(LEDGER_FEE)) return false;
     switch accountId {
       case null {
         lastCmcError := "CMC account ID not set — call setCmcAccountIds first";
+        recordTopUpAudit(canisterId, canisterName, amount, 0, 0, 0, "failed", lastCmcError);
         return false;
       };
       case (?accId) {
@@ -251,6 +265,7 @@ persistent actor Treasury {
                 lastTopUpAt := Time.now();
                 lastTopUpAmount := amount;
                 recordTopUpCycles(cyclesMinted);
+                recordTopUpAudit(canisterId, canisterName, amount, net, blockIndex, cyclesMinted, "performed", "");
                 switch frontendPrincipal {
                   case (?fp) {
                     if (Principal.equal(canisterId, fp)) {
@@ -270,6 +285,7 @@ persistent actor Treasury {
                   case (#Processing)            "Processing";
                   case (#TransactionTooOld(_))  "TransactionTooOld";
                 };
+                recordTopUpAudit(canisterId, canisterName, amount, net, blockIndex, 0, "failed", lastCmcError);
                 return false;
               };
             };
@@ -282,6 +298,7 @@ persistent actor Treasury {
               case (#TxCreatedInFuture)   "TxCreatedInFuture";
               case (#TxDuplicate(d))      "TxDuplicate: " # Nat64.toText(d.duplicate_of);
             };
+            recordTopUpAudit(canisterId, canisterName, amount, net, 0, 0, "failed", lastCmcError);
             return false;
           };
         };
@@ -328,7 +345,7 @@ persistent actor Treasury {
       ignore async {
         switch lp {
           case (?lp) {
-            let _ = await topUpCanister(cmcLotteryAccountId,  lp, lotteryShare);
+            let _ = await topUpCanister(cmcLotteryAccountId,  lp, "Lottery", lotteryShare);
           };
           case null {
             lastCmcError := "Lottery canister not configured; sending lottery share to treasury";
@@ -336,7 +353,7 @@ persistent actor Treasury {
         };
         switch fp {
           case (?fp) {
-            let _ = await topUpCanister(cmcFrontendAccountId, fp, frontendShare);
+            let _ = await topUpCanister(cmcFrontendAccountId, fp, "Frontend", frontendShare);
           };
           case null {
             lastCmcError := "Frontend canister not configured; sending frontend share to treasury";
@@ -344,7 +361,7 @@ persistent actor Treasury {
         };
         let fallbackLottery : Nat64 = switch lp { case (?_) 0; case null lotteryShare };
         let fallbackFrontend : Nat64 = switch fp { case (?_) 0; case null frontendShare };
-        let _ = await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), treasuryShare + fallbackLottery + fallbackFrontend);
+        let _ = await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), "Treasury", treasuryShare + fallbackLottery + fallbackFrontend);
         if (Nat64.toNat(dev2) > LEDGER_FEE) {
           let devRes = await ledger.icrc1_transfer({
             to              = { owner = Principal.fromText(devPrincipal); subaccount = null };
@@ -547,6 +564,32 @@ persistent actor Treasury {
     topUpCycleHistory := keepLast<(Int, Nat)>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
   };
 
+  func recordTopUpAudit(
+    canister : Principal,
+    canisterName : Text,
+    amount : Nat64,
+    netAmount : Nat64,
+    blockIndex : Nat64,
+    cyclesMinted : Nat,
+    status : Text,
+    error : Text,
+  ) {
+    let rec : TopUpAuditRecord = {
+      canister;
+      canisterName;
+      amount;
+      netAmount;
+      blockIndex;
+      cyclesMinted;
+      timestamp = Time.now();
+      status;
+      error;
+    };
+    let buf = Buffer.fromArray<TopUpAuditRecord>(topUpAuditHistory);
+    buf.add(rec);
+    topUpAuditHistory := keepLast<TopUpAuditRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
+  };
+
   func fundingStats(limit : Nat) : FundingStats {
     let n = topUpCycleHistory.size();
     let samples = Nat.min(limit, n);
@@ -681,5 +724,12 @@ persistent actor Treasury {
     if (offset >= t) return [];
     let rev = Array.tabulate<TransferRecord>(t, func(i) { transferHistory[t - 1 - i] });
     Array.tabulate<TransferRecord>(Nat.min(offset + limit, t) - offset, func(i) { rev[offset + i] })
+  };
+
+  public query func getTopUpAuditHistoryPaged(offset : Nat, limit : Nat) : async [TopUpAuditRecord] {
+    let t = topUpAuditHistory.size();
+    if (offset >= t) return [];
+    let rev = Array.tabulate<TopUpAuditRecord>(t, func(i) { topUpAuditHistory[t - 1 - i] });
+    Array.tabulate<TopUpAuditRecord>(Nat.min(offset + limit, t) - offset, func(i) { rev[offset + i] })
   };
 }

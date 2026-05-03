@@ -9,6 +9,18 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     note:       IDL.Text,
   });
 
+  const TopUpAuditRecord = IDL.Record({
+    canister:     IDL.Principal,
+    canisterName: IDL.Text,
+    amount:       IDL.Nat64,
+    netAmount:    IDL.Nat64,
+    blockIndex:   IDL.Nat64,
+    cyclesMinted: IDL.Nat,
+    timestamp:    IDL.Int,
+    status:       IDL.Text,
+    error:        IDL.Text,
+  });
+
   const Pools = IDL.Record({
     daily:     IDL.Nat64,
     small:     IDL.Nat64,
@@ -71,6 +83,7 @@ export const treasuryIdl = ({ IDL: _ } = { IDL }) => {
     refreshTreasuryAccounting: IDL.Func([], [TreasuryAccounting], []),
     getTransferHistory:      IDL.Func([], [IDL.Vec(TransferRecord)], ["query"]),
     getTransferHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TransferRecord)], ["query"]),
+    getTopUpAuditHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(TopUpAuditRecord)], ["query"]),
     setCmcAccountIds:        IDL.Func([IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8)], [], []),
     setDevMode:              IDL.Func([IDL.Bool], [], []),
     setDevPrincipal:         IDL.Func([IDL.Text], [], []),

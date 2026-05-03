@@ -42,9 +42,12 @@ jobs:
             echo "frontend_wasm_gz_sha256=$(sha256sum .dfx/ic/canisters/frontend/frontend.wasm.gz | awk '{print $1}')"
             echo "frontend_dist_sha256=$(find src/frontend/dist -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
           } | tee build-hashes.txt
+          cp src/frontend/dist/deployment-manifest.json deployment-manifest.json
 
       - name: Upload build hashes
         uses: actions/upload-artifact@v4
         with:
           name: build-hashes
-          path: build-hashes.txt
+          path: |
+            build-hashes.txt
+            deployment-manifest.json

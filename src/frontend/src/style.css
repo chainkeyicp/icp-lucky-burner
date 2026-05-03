@@ -1067,6 +1067,12 @@ body {
   border-color: rgba(148,163,184,.25);
   background: rgba(148,163,184,.06);
 }
+.topup-block-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  white-space: nowrap;
+}
 .verification-head {
   display: flex;
   justify-content: space-between;
@@ -1081,6 +1087,12 @@ body {
   text-transform: uppercase;
   letter-spacing: .05em;
   margin-bottom: .25rem;
+}
+.verification-generated {
+  display: block;
+  margin-top: .35rem;
+  color: var(--text-muted);
+  font-size: .74rem;
 }
 .verification-head code,
 .verification-table code {

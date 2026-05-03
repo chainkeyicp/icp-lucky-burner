@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import { copyFileSync, mkdirSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync } from "fs";
 
 export default defineConfig({
   root: "src",
@@ -14,6 +14,9 @@ export default defineConfig({
       mkdirSync("dist/.well-known", { recursive: true });
       copyFileSync("src/.well-known/ic-domains", "dist/.well-known/ic-domains");
       copyFileSync("src/.ic-assets.json5", "dist/.ic-assets.json5");
+      if (existsSync("public/deployment-manifest.json")) {
+        copyFileSync("public/deployment-manifest.json", "dist/deployment-manifest.json");
+      }
     }
   }],
   server: {

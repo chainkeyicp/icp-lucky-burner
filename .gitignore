@@ -8,6 +8,7 @@
 # Frontend build output
 src/frontend/dist/
 src/frontend/node_modules/
+src/frontend/public/deployment-manifest.json
 
 # Environment files (contain canister IDs for local dev)
 src/frontend/.env.local

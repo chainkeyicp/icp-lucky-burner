@@ -50,7 +50,9 @@ Production:
 
 - Website: https://luckyburner.fun/
 - Repository: https://github.com/chainkeyicp/icp-lucky-burner
-- Current published commit: `3b7e887253a0`
+- Live deployment manifest: https://luckyburner.fun/deployment-manifest.json
+
+The frontend publishes a deployment manifest with the source commit, generated time, canister IDs, and live module hashes. The UI reads this manifest in `Transparency -> Build & Verification` instead of relying on a hand-edited commit hash.
 
 Canisters:
 
@@ -69,12 +71,13 @@ dfx canister --network ic status msox6-nyaaa-aaaal-qw54q-cai
 dfx canister --network ic status m4m2w-wiaaa-aaaal-qw55q-cai
 ```
 
-Rebuild from the published commit:
+Rebuild from the manifest commit:
 
 ```bash
+curl -fsS https://luckyburner.fun/deployment-manifest.json
 git clone https://github.com/chainkeyicp/icp-lucky-burner.git
 cd icp-lucky-burner
-git checkout 3b7e887253a0
+git checkout <gitCommit from deployment-manifest.json>
 cd src/frontend
 npm ci
 cd ../..
@@ -91,3 +94,10 @@ find src/frontend/dist -type f -print0 | sort -z | xargs -0 sha256sum | sha256su
 ```
 
 The GitHub Actions workflow `.github/workflows/verify-build.yml` also builds the project and uploads `build-hashes.txt` as an artifact for each run. Module hashes shown by `dfx canister status` are the IC-installed module hashes; local SHA-256 build hashes are a reproducibility aid and may require the same dfx/toolchain versions to match exactly.
+
+For production deploys, generate the frontend manifest after backend canisters are deployed and before the final frontend deploy:
+
+```bash
+DEPLOYMENT_READ_LIVE_STATUS=1 npm --prefix src/frontend run build -- --mode ic
+dfx deploy --network ic frontend
+```
