@@ -128,6 +128,8 @@ actor Treasury {
   stable var lastPayoutError : Text = "none";
   stable var lastPayoutAt    : Int = 0;
   stable var lastPayoutNote  : Text = "none";
+  stable var cachedLedgerBalance : Nat = 0;
+  stable var cachedLedgerBalanceAt : Int = 0;
 
   // Min pool sizes before mystery can drop (in e8s)
   let MIN_SMALL  : Nat64 = 50_000_000;  // 0.5 ICP
@@ -225,6 +227,7 @@ actor Treasury {
         });
         switch transferRes {
           case (#Ok(blockIndex)) {
+            trackOutgoing(amount);
             let cmcRes = await cmc.notify_top_up({
               block_index = blockIndex;
               canister_id = canisterId;
@@ -275,6 +278,7 @@ actor Treasury {
   //   (total = 100%)
   public shared ({ caller }) func addTicketRevenue(amount : Nat64) : async () {
     assertLottery(caller);
+    trackIncoming(amount);
 
     let cycles10 = amount * 10 / 100;
     let dev2     = amount *  2 / 100;
@@ -319,7 +323,7 @@ actor Treasury {
         let fallbackFrontend : Nat64 = switch fp { case (?_) 0; case null frontendShare };
         let _ = await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), treasuryShare + fallbackLottery + fallbackFrontend);
         if (Nat64.toNat(dev2) > LEDGER_FEE) {
-          let _ = await ledger.icrc1_transfer({
+          let devRes = await ledger.icrc1_transfer({
             to              = { owner = Principal.fromText(devPrincipal); subaccount = null };
             amount          = Nat64.toNat(dev2) - LEDGER_FEE;
             fee             = ?LEDGER_FEE;
@@ -327,7 +331,17 @@ actor Treasury {
             from_subaccount = null;
             created_at_time = null;
           });
-          recordDev(dev2);
+          switch devRes {
+            case (#Ok(_)) {
+              trackOutgoing(dev2);
+              recordDev(dev2);
+            };
+            case (#Err(e)) {
+              lastPayoutError := "Developer fee failed: " # transferErrText(e);
+              lastPayoutAt := Time.now();
+              lastPayoutNote := "Developer fee";
+            };
+          };
         };
       };
     };
@@ -396,6 +410,7 @@ actor Treasury {
       };
     };
     record(dailyWinner, dp, "Daily Prize");
+    trackOutgoing(dp);
 
     // ── Small mystery ─────────────────────────────────────────────────────────
     switch smallWinner {
@@ -463,6 +478,7 @@ actor Treasury {
         lastPayoutAt := Time.now();
         lastPayoutNote := note;
         record(to, amount, note);
+        trackOutgoing(amount);
         true
       };
       case (#Err(e)) {
@@ -499,6 +515,47 @@ actor Treasury {
     let buf = Buffer.fromArray<TransferRecord>(transferHistory);
     buf.add(rec);
     transferHistory := keepLast<TransferRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
+  };
+
+  func totalPoolsNat() : Nat {
+    Nat64.toNat(dailyPool) + Nat64.toNat(smallPool) + Nat64.toNat(mediumPool) + Nat64.toNat(largePool)
+  };
+
+  func accountingBalance() : Nat {
+    if (cachedLedgerBalance == 0) totalPoolsNat() else cachedLedgerBalance
+  };
+
+  func trackIncoming(amount : Nat64) {
+    if (cachedLedgerBalance == 0) cachedLedgerBalance := totalPoolsNat();
+    cachedLedgerBalance += Nat64.toNat(amount);
+    cachedLedgerBalanceAt := Time.now();
+  };
+
+  func trackOutgoing(amount : Nat64) {
+    let amountNat = Nat64.toNat(amount);
+    cachedLedgerBalance := if (cachedLedgerBalance > amountNat) Nat.sub(cachedLedgerBalance, amountNat) else 0;
+    cachedLedgerBalanceAt := Time.now();
+  };
+
+  func treasuryAccounting(balance : Nat) : TreasuryAccounting {
+    let totalPools = totalPoolsNat();
+    {
+      ledgerBalance = balance;
+      totalPools;
+      unallocatedBalance = if (balance >= totalPools) Nat.sub(balance, totalPools) else 0;
+      poolDeficit = if (totalPools > balance) Nat.sub(totalPools, balance) else 0;
+      dailyPool;
+      smallPool;
+      mediumPool;
+      largePool;
+      minSmall = MIN_SMALL;
+      minMedium = MIN_MEDIUM;
+      minLarge = MIN_LARGE;
+      lastCmcError;
+      lastPayoutError;
+      lastPayoutAt;
+      lastPayoutNote;
+    }
   };
 
   func keepLast<T>(arr : [T], max : Nat) : [T] {
@@ -543,29 +600,18 @@ actor Treasury {
     }
   };
 
-  public shared func getTreasuryAccounting() : async TreasuryAccounting {
+  public query func getTreasuryAccounting() : async TreasuryAccounting {
+    treasuryAccounting(accountingBalance())
+  };
+
+  public shared func refreshTreasuryAccounting() : async TreasuryAccounting {
     let balance = await ledger.icrc1_balance_of({
       owner = Principal.fromActor(Treasury);
       subaccount = null;
     });
-    let totalPools = Nat64.toNat(dailyPool) + Nat64.toNat(smallPool) + Nat64.toNat(mediumPool) + Nat64.toNat(largePool);
-    {
-      ledgerBalance = balance;
-      totalPools;
-      unallocatedBalance = if (balance >= totalPools) Nat.sub(balance, totalPools) else 0;
-      poolDeficit = if (totalPools > balance) Nat.sub(totalPools, balance) else 0;
-      dailyPool;
-      smallPool;
-      mediumPool;
-      largePool;
-      minSmall = MIN_SMALL;
-      minMedium = MIN_MEDIUM;
-      minLarge = MIN_LARGE;
-      lastCmcError;
-      lastPayoutError;
-      lastPayoutAt;
-      lastPayoutNote;
-    }
+    cachedLedgerBalance := balance;
+    cachedLedgerBalanceAt := Time.now();
+    treasuryAccounting(balance)
   };
 
 

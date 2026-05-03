@@ -52,10 +52,6 @@ async function initAsync() {
       }
     }
     await refreshRound();
-    await refreshWinners();
-    await refreshLiveFeed();
-    await refreshStats();
-    await refreshTransparency();
   } catch (e) {
     console.error("Init error:", e);
   } finally {
@@ -63,11 +59,15 @@ async function initAsync() {
     document.getElementById("main-content").style.visibility = "visible";
   }
 
+  refreshLiveFeed();
+  refreshStats();
+  if (activePage() === "rules") refreshTransparency();
+
   setInterval(async () => {
     await refreshRound();
     await refreshLiveFeed();
     await refreshStats();
-    await refreshTransparency();
+    if (activePage() === "rules") await refreshTransparency();
   }, 30_000);
 }
 
@@ -146,6 +146,10 @@ function setupNav() {
       if (page === "rules") refreshTransparency();
     });
   });
+}
+
+function activePage() {
+  return document.querySelector(".page.active")?.id?.replace("page-", "") ?? "lottery";
 }
 
 // ── Dev panel ──────────────────────────────────────────────────────────────
