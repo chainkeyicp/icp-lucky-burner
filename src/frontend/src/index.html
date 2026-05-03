@@ -301,6 +301,47 @@
         </div>
 
         <div class="rules-card">
+          <h3>Autonomy & Accounting</h3>
+          <p class="rules-intro">Live canister status and treasury reconciliation, readable publicly without login.</p>
+          <div class="health-grid">
+            <div class="health-panel">
+              <h4>Cycles</h4>
+              <div class="health-row"><span>Lottery</span><strong id="health-lottery-cycles">Loading...</strong></div>
+              <div class="health-row"><span>Treasury</span><strong id="health-treasury-cycles">Loading...</strong></div>
+              <div class="health-row"><span>Frontend</span><strong>dfx status</strong></div>
+              <div class="health-row"><span>Last buy</span><strong id="health-last-buy">Loading...</strong></div>
+              <div class="health-row"><span>Last draw</span><strong id="health-last-draw">Loading...</strong></div>
+              <div class="health-row"><span>Last settle</span><strong id="health-last-settle">Loading...</strong></div>
+            </div>
+            <div class="health-panel">
+              <h4>Treasury</h4>
+              <div class="health-row"><span>Ledger balance</span><strong id="accounting-ledger-balance">Loading...</strong></div>
+              <div class="health-row"><span>Reserved pools</span><strong id="accounting-total-pools">Loading...</strong></div>
+              <div class="health-row"><span>Buffer</span><strong id="accounting-buffer">Loading...</strong></div>
+              <div class="health-row"><span>Deficit</span><strong id="accounting-deficit">Loading...</strong></div>
+              <div class="health-row"><span>Payout</span><strong id="accounting-payout-status">Loading...</strong></div>
+              <div class="health-row"><span>Payout note</span><strong id="accounting-payout-note">Loading...</strong></div>
+            </div>
+            <div class="health-panel">
+              <h4>Mystery Eligibility</h4>
+              <div class="health-row stacked"><span>Small</span><strong id="accounting-small-eligibility">Loading...</strong></div>
+              <div class="health-row stacked"><span>Medium</span><strong id="accounting-medium-eligibility">Loading...</strong></div>
+              <div class="health-row stacked"><span>Large</span><strong id="accounting-large-eligibility">Loading...</strong></div>
+            </div>
+            <div class="health-panel">
+              <h4>Control Plan</h4>
+              <div class="health-row"><span>CMC config</span><strong id="health-config-status">Loading...</strong></div>
+              <div class="health-row"><span>CMC status</span><strong id="health-cmc-status">Loading...</strong></div>
+              <div class="immutability-plan">
+                <span>Current: controlled admin</span>
+                <span>Next: multisig or timelock after audits</span>
+                <span>Final: blackholed once stable</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rules-card">
           <h3>Transparency & Fairness</h3>
           <ul>
             <li>Winner selection uses ICP's native on-chain randomness — threshold BLS signatures, not manipulable by anyone.</li>

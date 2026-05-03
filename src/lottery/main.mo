@@ -12,6 +12,7 @@ import Result "mo:base/Result";
 import Random "mo:base/Random";
 import Blob "mo:base/Blob";
 import Timer "mo:base/Timer";
+import Cycles "mo:base/ExperimentalCycles";
 
 import Treasury "canister:treasury";
 
@@ -24,6 +25,8 @@ actor Lottery {
   let DAY_NANOS        : Int   = 86_400_000_000_000;
   let LEDGER_ID        : Text  = "ryjl3-tyaaa-aaaaa-aaaba-cai";
   let LEDGER_FEE       : Nat   = 10_000;
+  let MAX_WINNER_HISTORY : Nat = 500;
+  let MAX_ROUND_SNAPSHOTS : Nat = 500;
 
   // Mystery drop thresholds (out of 256)
   // 25% ≈ 64/256 | 10% ≈ 26/256 | 3% ≈ 8/256
@@ -77,6 +80,19 @@ actor Lottery {
     roundId   : Nat;
   };
 
+  public type CyclesHealth = {
+    balance              : Nat;
+    lastBuyCyclesBefore  : Nat;
+    lastBuyCyclesAfter   : Nat;
+    lastBuyCyclesDelta   : Int;
+    lastDrawCyclesBefore : Nat;
+    lastDrawCyclesAfter  : Nat;
+    lastDrawCyclesDelta  : Int;
+    historySize          : Nat;
+    snapshotSize         : Nat;
+    maxHistorySize       : Nat;
+  };
+
   type TransferFromError = {
     #BadFee              : { expected_fee : Nat };
     #BadBurn             : { min_burn_amount : Nat };
@@ -114,6 +130,10 @@ actor Lottery {
   stable var purchaseHistory      : [PurchaseRecord] = [];
   stable var winnerTicketsArr     : [(Nat, Nat)] = [];
   stable var roundParticipantsArr : [(Nat, [(Principal, Nat)])] = [];
+  stable var lastBuyCyclesBefore  : Nat = 0;
+  stable var lastBuyCyclesAfter   : Nat = 0;
+  stable var lastDrawCyclesBefore : Nat = 0;
+  stable var lastDrawCyclesAfter  : Nat = 0;
 
   // Local pool cache — mirrors treasury pools, updated at purchase and draw
   stable var cachedDailyPool   : Nat64 = 0;
@@ -178,14 +198,14 @@ actor Lottery {
   func recordWinnerTickets(roundId : Nat, count : Nat) {
     let buf = Buffer.fromArray<(Nat, Nat)>(winnerTicketsArr);
     buf.add((roundId, count));
-    winnerTicketsArr := Buffer.toArray(buf);
+    winnerTicketsArr := keepLast<(Nat, Nat)>(Buffer.toArray(buf), MAX_ROUND_SNAPSHOTS);
   };
 
   func snapshotParticipants(roundId : Nat) {
     let snapshot = Iter.toArray(tickets.entries());
     let buf = Buffer.fromArray<(Nat, [(Principal, Nat)])>(roundParticipantsArr);
     buf.add((roundId, snapshot));
-    roundParticipantsArr := Buffer.toArray(buf);
+    roundParticipantsArr := keepLast<(Nat, [(Principal, Nat)])>(Buffer.toArray(buf), MAX_ROUND_SNAPSHOTS);
   };
 
   func getParticipantSnapshot(roundId : Nat) : [(Principal, Nat)] {
@@ -208,9 +228,20 @@ actor Lottery {
     s
   };
 
+  func keepLast<T>(arr : [T], max : Nat) : [T] {
+    if (arr.size() <= max) return arr;
+    let start = Int.abs(Int.abs(arr.size()) - Int.abs(max));
+    Array.tabulate<T>(max, func(i) { arr[start + i] })
+  };
+
+  func cyclesDelta(before : Nat, after : Nat) : Int {
+    if (after >= before) Int.abs(after - before) else -Int.abs(before - after)
+  };
+
   // ── Draw ───────────────────────────────────────────────────────────────────
 
   func draw() : async () {
+    lastDrawCyclesBefore := Cycles.balance();
     let pool = Buffer.toArray(ticketBuf);
     let sold = pool.size();
 
@@ -222,8 +253,9 @@ actor Lottery {
         smallWinner = null; mediumWinner = null; largeWinner = null;
         smallAmt = 0; mediumAmt = 0; largeAmt = 0;
       });
-      winnerHistory := Buffer.toArray(buf);
+      winnerHistory := keepLast<WinnerRecord>(Buffer.toArray(buf), MAX_WINNER_HISTORY);
       advanceRound();
+      lastDrawCyclesAfter := Cycles.balance();
       return;
     };
 
@@ -284,8 +316,9 @@ actor Lottery {
       smallWinner = smallW; mediumWinner = medW; largeWinner = largeW;
       smallAmt = sAmt; mediumAmt = mAmt; largeAmt = lAmt;
     });
-    winnerHistory := Buffer.toArray(buf);
+    winnerHistory := keepLast<WinnerRecord>(Buffer.toArray(buf), MAX_WINNER_HISTORY);
     advanceRound();
+    lastDrawCyclesAfter := Cycles.balance();
   };
 
   func advanceRound() {
@@ -298,12 +331,22 @@ actor Lottery {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   public shared ({ caller }) func buyTickets(count : Nat) : async Result.Result<Text, Text> {
-    if (Principal.isAnonymous(caller)) return #err("Login required");
-    if (count == 0 or count > MAX_TICKETS) return #err("Buy 1–10 tickets");
+    lastBuyCyclesBefore := Cycles.balance();
+    if (Principal.isAnonymous(caller)) {
+      lastBuyCyclesAfter := Cycles.balance();
+      return #err("Login required");
+    };
+    if (count == 0 or count > MAX_TICKETS) {
+      lastBuyCyclesAfter := Cycles.balance();
+      return #err("Buy 1–10 tickets");
+    };
     let existing = switch (tickets.get(caller)) { case (?n) n; case null 0 };
-    if (existing + count > MAX_TICKETS) return #err(
-      "Max 10 tickets per wallet. You have " # Nat.toText(existing) # " already."
-    );
+    if (existing + count > MAX_TICKETS) {
+      lastBuyCyclesAfter := Cycles.balance();
+      return #err(
+        "Max 10 tickets per wallet. You have " # Nat.toText(existing) # " already."
+      );
+    };
 
     if (not isDevMode) {
       let totalAmount = count * TICKET_PRICE;
@@ -326,6 +369,7 @@ actor Lottery {
             case (#TooOld)                   "Transaction too old, try again";
             case _                           "Payment failed";
           };
+          lastBuyCyclesAfter := Cycles.balance();
           return #err(msg);
         };
         case (#Ok(_)) {};
@@ -347,10 +391,9 @@ actor Lottery {
     let rec : PurchaseRecord = { buyer = caller; count; timestamp = Time.now(); roundId = currentRound };
     let buf = Buffer.fromArray<PurchaseRecord>(purchaseHistory);
     buf.add(rec);
-    let arr   = Buffer.toArray(buf);
-    let start = if (arr.size() > 50) arr.size() - 50 else 0;
-    purchaseHistory := Array.tabulate<PurchaseRecord>(arr.size() - start, func(i) { arr[start + i] });
+    purchaseHistory := keepLast<PurchaseRecord>(Buffer.toArray(buf), 50);
 
+    lastBuyCyclesAfter := Cycles.balance();
     #ok("Purchased " # Nat.toText(count) # " ticket(s). Total: " #
         Nat.toText(existing + count) # "/10.")
   };
@@ -437,5 +480,20 @@ actor Lottery {
     if (offset >= t) return [];
     let rev = Array.tabulate<WinnerRecord>(t, func(i) { winnerHistory[t - 1 - i] });
     Array.tabulate<WinnerRecord>(Nat.min(offset + limit, t) - offset, func(i) { rev[offset + i] })
+  };
+
+  public query func getCyclesHealth() : async CyclesHealth {
+    {
+      balance = Cycles.balance();
+      lastBuyCyclesBefore;
+      lastBuyCyclesAfter;
+      lastBuyCyclesDelta = cyclesDelta(lastBuyCyclesBefore, lastBuyCyclesAfter);
+      lastDrawCyclesBefore;
+      lastDrawCyclesAfter;
+      lastDrawCyclesDelta = cyclesDelta(lastDrawCyclesBefore, lastDrawCyclesAfter);
+      historySize = winnerHistory.size();
+      snapshotSize = roundParticipantsArr.size();
+      maxHistorySize = MAX_WINNER_HISTORY;
+    }
   };
 }

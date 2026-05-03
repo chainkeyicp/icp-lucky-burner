@@ -8,11 +8,12 @@ import { ledgerIdl }   from "./idl/ledger.js";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const LOTTERY_ID  = import.meta.env.VITE_LOTTERY_CANISTER_ID  ?? "";
-const TREASURY_ID = import.meta.env.VITE_TREASURY_CANISTER_ID ?? "";
+const IS_IC_HOST = /\.icp0\.io$|\.ic0\.app$/.test(globalThis.location?.hostname ?? "");
+const LOTTERY_ID  = IS_IC_HOST ? "m3n4c-3qaaa-aaaal-qw55a-cai" : (import.meta.env.VITE_LOTTERY_CANISTER_ID  ?? "");
+const TREASURY_ID = IS_IC_HOST ? "msox6-nyaaa-aaaal-qw54q-cai" : (import.meta.env.VITE_TREASURY_CANISTER_ID ?? "");
 const LEDGER_ID   = "ryjl3-tyaaa-aaaaa-aaaba-cai";
-const IS_LOCAL    = (import.meta.env.VITE_DFX_NETWORK ?? "local") !== "ic";
-const HOST        = import.meta.env.VITE_HOST ?? "http://localhost:8080";
+const IS_LOCAL    = !IS_IC_HOST && (import.meta.env.VITE_DFX_NETWORK ?? "local") !== "ic";
+const HOST        = IS_LOCAL ? (import.meta.env.VITE_HOST ?? "http://localhost:8080") : "https://icp-api.io";
 const II_URL      = "https://identity.ic0.app";
 const EXPLORER_BASE = "https://dashboard.internetcomputer.org/transaction/";
 const LEDGER_FEE  = 10_000n;
@@ -54,6 +55,7 @@ async function initAsync() {
     await refreshWinners();
     await refreshLiveFeed();
     await refreshStats();
+    await refreshTransparency();
   } catch (e) {
     console.error("Init error:", e);
   } finally {
@@ -65,6 +67,7 @@ async function initAsync() {
     await refreshRound();
     await refreshLiveFeed();
     await refreshStats();
+    await refreshTransparency();
   }, 30_000);
 }
 
@@ -140,6 +143,7 @@ function setupNav() {
       target.classList.add("active");
       if (page === "winners") refreshWinners();
       if (page === "wallet") refreshMyHistory();
+      if (page === "rules") refreshTransparency();
     });
   });
 }
@@ -318,14 +322,14 @@ async function renderRound(s) {
   document.getElementById("pool-large").textContent  = e8sToIcp(BigInt(Math.floor(large)));
 
   // Sub-labels: show drop chance or "accumulating until min"
-  const smallReady  = small  >= minS;
-  const mediumReady = medium >= minM;
-  const largeReady  = large  >= minL;
+  const smallNow  = BigInt(Math.floor(small));
+  const mediumNow = BigInt(Math.floor(medium));
+  const largeNow  = BigInt(Math.floor(large));
 
   document.getElementById("daily-sub").textContent  = `From today's ${e8sToIcp(BigInt(Math.floor(daily)))} pool`;
-  document.getElementById("small-sub").textContent  = smallReady  ? "25% chance to drop tonight" : `Min ${e8sToIcp(BigInt(minS))} · accumulating`;
-  document.getElementById("medium-sub").textContent = mediumReady ? "10% chance to drop tonight" : `Min ${e8sToIcp(BigInt(minM))} · accumulating`;
-  document.getElementById("large-sub").textContent  = largeReady  ? "3% chance to drop tonight"  : `Min ${e8sToIcp(BigInt(minL))} · accumulating`;
+  document.getElementById("small-sub").textContent  = mysteryStatusText(smallNow, BigInt(minS), "25%");
+  document.getElementById("medium-sub").textContent = mysteryStatusText(mediumNow, BigInt(minM), "10%");
+  document.getElementById("large-sub").textContent  = mysteryStatusText(largeNow, BigInt(minL), "3%");
 
   const my   = Number(s.myTickets);
   const sold = Number(s.ticketsSold);
@@ -347,6 +351,11 @@ async function renderRound(s) {
 
   window._roundEnd  = Number(s.roundEnd);
   window._isDevMode = s.isDevMode;
+}
+
+function mysteryStatusText(amount, min, chance) {
+  if (amount >= min) return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - eligible - ${chance} chance`;
+  return `${e8sToIcp(amount)} / ${e8sToIcp(min)} - not eligible`;
 }
 
 // ── Countdown ──────────────────────────────────────────────────────────────
@@ -541,7 +550,9 @@ async function refreshLiveFeed() {
 }
 
 async function refreshStats() {
-  const actor = lotteryActor ?? makeAnonActors().lottery;
+  const anonActors = makeAnonActors();
+  const actor = lotteryActor ?? anonActors.lottery;
+  const treasury = anonActors.treasury;
   try {
     const [history, status] = await Promise.all([
       actor.getWinnerHistory(),
@@ -560,11 +571,76 @@ async function refreshStats() {
     cycled  += BigInt(currentSold) * 10_000_000n * 10n / 100n;
     tickets += currentSold;
 
-    document.getElementById("stat-burned").textContent  = e8sToIcp(cycled);
+    const [lotteryHealth, treasuryHealth] = await Promise.allSettled([
+      actor.getCyclesHealth(),
+      treasury.getCyclesHealth(),
+    ]);
+
+    renderCyclesStat(
+      lotteryHealth.status === "fulfilled" ? lotteryHealth.value : null,
+      treasuryHealth.status === "fulfilled" ? treasuryHealth.value : null,
+      cycled,
+    );
     document.getElementById("stat-rounds").textContent  = String(history.length);
     document.getElementById("stat-tickets").textContent = String(tickets);
     document.getElementById("stat-payout").textContent  = e8sToIcp(payout);
   } catch (e) { console.error(e); }
+}
+
+function renderCyclesStat(lotteryHealth, treasuryHealth, fundedE8s) {
+  const el = document.getElementById("stat-burned");
+  if (!lotteryHealth || !treasuryHealth) {
+    el.textContent = e8sToIcp(fundedE8s);
+    return;
+  }
+
+  const lotteryCycles = BigInt(lotteryHealth.balance);
+  const treasuryCycles = BigInt(treasuryHealth.balance);
+  const visibleTotal = lotteryCycles + treasuryCycles;
+
+  el.innerHTML = `
+    <span class="cycles-total">${formatCycles(visibleTotal)}</span>
+    <span class="cycles-row"><span>Lottery</span><strong>${formatCycles(lotteryCycles)}</strong></span>
+    <span class="cycles-row"><span>Treasury</span><strong>${formatCycles(treasuryCycles)}</strong></span>
+    <span class="cycles-row muted"><span>Frontend</span><strong>dfx only</strong></span>
+  `;
+}
+
+async function refreshTransparency() {
+  const { lottery, treasury } = makeAnonActors();
+  const [lotteryHealth, treasuryHealth, accounting] = await Promise.allSettled([
+    lottery.getCyclesHealth(),
+    treasury.getCyclesHealth(),
+    treasury.getTreasuryAccounting(),
+  ]);
+
+  if (lotteryHealth.status === "fulfilled") {
+    const h = lotteryHealth.value;
+    setText("health-lottery-cycles", formatCycles(BigInt(h.balance)));
+    setText("health-last-buy", formatCycleDelta(h.lastBuyCyclesDelta));
+    setText("health-last-draw", formatCycleDelta(h.lastDrawCyclesDelta));
+  }
+
+  if (treasuryHealth.status === "fulfilled") {
+    const h = treasuryHealth.value;
+    setText("health-treasury-cycles", formatCycles(BigInt(h.balance)));
+    setText("health-last-settle", formatCycleDelta(h.lastSettleCyclesDelta));
+    setText("health-cmc-status", h.lastCmcError === "none" ? "OK" : h.lastCmcError);
+    setText("health-config-status", h.lotteryConfigured && h.frontendConfigured ? "OK" : "Incomplete");
+  }
+
+  if (accounting.status === "fulfilled") {
+    const a = accounting.value;
+    setText("accounting-ledger-balance", e8sToIcp(BigInt(a.ledgerBalance)));
+    setText("accounting-total-pools", e8sToIcp(BigInt(a.totalPools)));
+    setText("accounting-buffer", e8sToIcp(BigInt(a.unallocatedBalance)));
+    setText("accounting-deficit", e8sToIcp(BigInt(a.poolDeficit)));
+    setText("accounting-payout-status", a.lastPayoutError === "none" || a.lastPayoutError === "ok" ? "OK" : a.lastPayoutError);
+    setText("accounting-payout-note", a.lastPayoutNote || "none");
+    setText("accounting-small-eligibility", mysteryStatusText(BigInt(a.smallPool), BigInt(a.minSmall), "25%"));
+    setText("accounting-medium-eligibility", mysteryStatusText(BigInt(a.mediumPool), BigInt(a.minMedium), "10%"));
+    setText("accounting-large-eligibility", mysteryStatusText(BigInt(a.largePool), BigInt(a.minLarge), "3%"));
+  }
 }
 
 function timeAgo(ns) {
@@ -581,6 +657,7 @@ window.closeModal = function() {
 };
 
 async function showWinnerModal(record) {
+  const actor = lotteryActor ?? makeAnonActors().lottery;
   const date = new Date(Number(record.timestamp) / 1_000_000).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
   });
@@ -592,9 +669,9 @@ async function showWinnerModal(record) {
   let participantsHtml = "";
   let winnerChanceHtml = "";
 
-  if (lotteryActor && !noTickets) {
+  if (actor && !noTickets) {
     try {
-      const entries = await lotteryActor.getRoundTickets(Number(record.roundId));
+      const entries = await actor.getRoundTickets(Number(record.roundId));
       if (entries.length > 0) {
         const entrySum    = entries.reduce((s, [, n]) => s + Number(n), 0);
         const total       = Math.max(entrySum, Number(record.ticketsSold));
@@ -662,12 +739,12 @@ async function showWinnerModal(record) {
 // ── Winners ────────────────────────────────────────────────────────────────
 
 async function refreshWinners() {
-  if (!lotteryActor) return;
+  const actor = lotteryActor ?? makeAnonActors().lottery;
   winnersOffset = 0;
   const tbody = document.getElementById("winners-tbody");
   tbody.innerHTML = "";
   try {
-    const rows = await lotteryActor.getWinnerHistoryPaged(0, WINNERS_PAGE);
+    const rows = await actor.getWinnerHistoryPaged(0, WINNERS_PAGE);
     winnersOffset = rows.length;
     if (rows.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No draws yet</td></tr>`;
@@ -678,8 +755,8 @@ async function refreshWinners() {
 }
 
 document.getElementById("load-more-winners").addEventListener("click", async () => {
-  if (!lotteryActor) return;
-  const more = await lotteryActor.getWinnerHistoryPaged(winnersOffset, WINNERS_PAGE).catch(() => []);
+  const actor = lotteryActor ?? makeAnonActors().lottery;
+  const more = await actor.getWinnerHistoryPaged(winnersOffset, WINNERS_PAGE).catch(() => []);
   appendWinners(more);
 });
 
@@ -796,9 +873,28 @@ function e8sToIcp(e8s) {
   return `${(Number(e8s) / 1e8).toFixed(4)} ICP`;
 }
 
+function formatCycles(cycles) {
+  const n = Number(cycles);
+  if (n >= 1e12) return `${(n / 1e12).toFixed(3)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  return String(n);
+}
+
+function formatCycleDelta(delta) {
+  const n = Number(delta);
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  return `${sign}${formatCycles(BigInt(Math.abs(n)))} cycles`;
+}
+
 function shortPrincipal(p) {
   const parts = p.split("-");
   return `${parts[0]}...${parts[parts.length - 1]}`;
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
 }
 
 function setMsg(el, text, type) {

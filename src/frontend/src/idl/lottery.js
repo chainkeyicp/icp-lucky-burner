@@ -39,6 +39,19 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     roundId:   IDL.Nat,
   });
 
+  const CyclesHealth = IDL.Record({
+    balance:              IDL.Nat,
+    lastBuyCyclesBefore:  IDL.Nat,
+    lastBuyCyclesAfter:   IDL.Nat,
+    lastBuyCyclesDelta:   IDL.Int,
+    lastDrawCyclesBefore: IDL.Nat,
+    lastDrawCyclesAfter:  IDL.Nat,
+    lastDrawCyclesDelta:  IDL.Int,
+    historySize:          IDL.Nat,
+    snapshotSize:         IDL.Nat,
+    maxHistorySize:       IDL.Nat,
+  });
+
   const Result = IDL.Variant({ ok: IDL.Text, err: IDL.Text });
 
   return IDL.Service({
@@ -48,6 +61,7 @@ export const lotteryIdl = ({ IDL: _ } = { IDL }) => {
     devEndDay:             IDL.Func([],                 [Result],        []),
     setDevMode:            IDL.Func([IDL.Bool],         [],              []),
     getRoundStatus:        IDL.Func([],                 [RoundStatus],   ["query"]),
+    getCyclesHealth:       IDL.Func([],                 [CyclesHealth],  ["query"]),
     getMyRounds:           IDL.Func([IDL.Principal],    [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat, IDL.Nat))], ["query"]),
     getWinnerHistory:      IDL.Func([],                 [IDL.Vec(WinnerRecord)], ["query"]),
     getWinnerHistoryPaged: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(WinnerRecord)], ["query"]),

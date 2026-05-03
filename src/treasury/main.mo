@@ -8,6 +8,7 @@ import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Text "mo:base/Text";
 import Blob "mo:base/Blob";
+import Cycles "mo:base/ExperimentalCycles";
 
 actor Treasury {
   stable var admin : Principal = Principal.fromText("njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae");
@@ -17,6 +18,7 @@ actor Treasury {
   let LEDGER_ID  : Text = "ryjl3-tyaaa-aaaaa-aaaba-cai";
   let CMC_ID     : Text = "rkp4c-7iaaa-aaaaa-aaaca-cai";
   let LEDGER_FEE : Nat  = 10_000; // 0.0001 ICP in e8s
+  let MAX_TRANSFER_HISTORY : Nat = 1_000;
 
   // ── Actor types ────────────────────────────────────────────────────────────
 
@@ -75,6 +77,38 @@ actor Treasury {
 
   public type SettleOk = { amountWon : Nat64; blockIndex : Nat64 };
 
+  public type CyclesHealth = {
+    balance                : Nat;
+    lastCmcError           : Text;
+    lastTopUpAt            : Int;
+    lastTopUpAmount        : Nat64;
+    lastSettleCyclesBefore : Nat;
+    lastSettleCyclesAfter  : Nat;
+    lastSettleCyclesDelta  : Int;
+    lotteryConfigured      : Bool;
+    frontendConfigured     : Bool;
+    historySize            : Nat;
+    maxHistorySize         : Nat;
+  };
+
+  public type TreasuryAccounting = {
+    ledgerBalance          : Nat;
+    totalPools             : Nat;
+    unallocatedBalance     : Nat;
+    poolDeficit            : Nat;
+    dailyPool              : Nat64;
+    smallPool              : Nat64;
+    mediumPool             : Nat64;
+    largePool              : Nat64;
+    minSmall               : Nat64;
+    minMedium              : Nat64;
+    minLarge               : Nat64;
+    lastCmcError           : Text;
+    lastPayoutError        : Text;
+    lastPayoutAt           : Int;
+    lastPayoutNote         : Text;
+  };
+
   // ── Stable state ───────────────────────────────────────────────────────────
 
   stable var dailyPool       : Nat64 = 0;
@@ -84,8 +118,16 @@ actor Treasury {
   stable var devPrincipal    : Text  = "njtst-4gvw7-fsjc5-7rz4t-jmpau-l2yo5-xxqp5-dnoyd-zkbtj-bdfnj-4ae";
   stable var isDevMode       : Bool  = false;
   stable var lotteryPrincipal : ?Principal = null;
+  stable var frontendPrincipal : ?Principal = ?Principal.fromText("m4m2w-wiaaa-aaaal-qw55q-cai");
   stable var transferHistory : [TransferRecord] = [];
   stable var lastCmcError    : Text = "none";
+  stable var lastTopUpAt     : Int = 0;
+  stable var lastTopUpAmount : Nat64 = 0;
+  stable var lastSettleCyclesBefore : Nat = 0;
+  stable var lastSettleCyclesAfter  : Nat = 0;
+  stable var lastPayoutError : Text = "none";
+  stable var lastPayoutAt    : Int = 0;
+  stable var lastPayoutNote  : Text = "none";
 
   // Min pool sizes before mystery can drop (in e8s)
   let MIN_SMALL  : Nat64 = 50_000_000;  // 0.5 ICP
@@ -100,6 +142,7 @@ actor Treasury {
     isDevMode    := false;
     cmcLotteryAccountId  := ?Blob.fromArray([46,7,15,5,226,247,37,177,20,92,19,19,237,155,195,39,113,37,21,167,226,175,174,17,205,201,219,254,107,16,176,114]);
     cmcTreasuryAccountId := ?Blob.fromArray([252,7,177,91,47,178,11,179,214,34,155,200,128,52,109,192,177,58,212,155,147,84,79,83,231,90,197,72,111,169,31,209]);
+    cmcFrontendAccountId := ?Blob.fromArray([196,138,80,230,198,178,78,66,160,253,131,229,121,56,69,231,45,127,59,62,207,197,50,72,11,201,199,223,235,239,202,237]);
   };
 
   // ── Admin ──────────────────────────────────────────────────────────────────
@@ -124,6 +167,18 @@ actor Treasury {
     lotteryPrincipal := ?p;
   };
 
+  public shared ({ caller }) func setFrontendCanister(p : Principal) : async () {
+    assert Principal.equal(caller, admin);
+    frontendPrincipal := ?p;
+  };
+
+  public shared ({ caller }) func setCmcAccountIds(lottery : Blob, treasury : Blob, frontend : Blob) : async () {
+    assert Principal.equal(caller, admin);
+    cmcLotteryAccountId := ?lottery;
+    cmcTreasuryAccountId := ?treasury;
+    cmcFrontendAccountId := ?frontend;
+  };
+
   // ── Auth helper ────────────────────────────────────────────────────────────
 
   func assertLottery(caller : Principal) {
@@ -145,15 +200,17 @@ actor Treasury {
   // CMC account IDs: accountIdentifier(CMC, principalToSubaccount(canisterId))
   // Lottery  (m3n4c-3qaaa-aaaal-qw55a-cai): 2e070f05e2f725b1145c1313ed9bc327712515a7e2afae11cdc9dbfe6b10b072
   // Treasury (msox6-nyaaa-aaaal-qw54q-cai): fc07b15b2fb20bb3d6229bc880346dc0b13ad49b93544f53e75ac5486fa91fd1
+  // Frontend (m4m2w-wiaaa-aaaal-qw55q-cai): c48a50e6c6b24e42a0fd83e5793845e72d7f3b3ecfc532480bc9c7dfebefcaed
   stable var cmcLotteryAccountId  : ?Blob = ?Blob.fromArray([46,7,15,5,226,247,37,177,20,92,19,19,237,155,195,39,113,37,21,167,226,175,174,17,205,201,219,254,107,16,176,114]);
   stable var cmcTreasuryAccountId : ?Blob = ?Blob.fromArray([252,7,177,91,47,178,11,179,214,34,155,200,128,52,109,192,177,58,212,155,147,84,79,83,231,90,197,72,111,169,31,209]);
+  stable var cmcFrontendAccountId : ?Blob = ?Blob.fromArray([196,138,80,230,198,178,78,66,160,253,131,229,121,56,69,231,45,127,59,62,207,197,50,72,11,201,199,223,235,239,202,237]);
 
-  func topUpCanister(accountId : ?Blob, canisterId : Principal, amount : Nat64) : async () {
-    if (amount == 0 or amount <= Nat64.fromNat(LEDGER_FEE)) return;
+  func topUpCanister(accountId : ?Blob, canisterId : Principal, amount : Nat64) : async Bool {
+    if (amount == 0 or amount <= Nat64.fromNat(LEDGER_FEE)) return false;
     switch accountId {
       case null {
         lastCmcError := "CMC account ID not set — call setCmcAccountIds first";
-        return;
+        return false;
       };
       case (?accId) {
         let net = amount - Nat64.fromNat(LEDGER_FEE);
@@ -173,7 +230,12 @@ actor Treasury {
               canister_id = canisterId;
             });
             switch cmcRes {
-              case (#Ok(_))  { lastCmcError := "ok" };
+              case (#Ok(_))  {
+                lastCmcError := "ok";
+                lastTopUpAt := Time.now();
+                lastTopUpAmount := amount;
+                return true;
+              };
               case (#Err(e)) {
                 lastCmcError := switch e {
                   case (#Refunded(r))           "Refunded: " # r.reason;
@@ -182,6 +244,7 @@ actor Treasury {
                   case (#Processing)            "Processing";
                   case (#TransactionTooOld(_))  "TransactionTooOld";
                 };
+                return false;
               };
             };
           };
@@ -193,6 +256,7 @@ actor Treasury {
               case (#TxCreatedInFuture)   "TxCreatedInFuture";
               case (#TxDuplicate(d))      "TxDuplicate: " # Nat64.toText(d.duplicate_of);
             };
+            return false;
           };
         };
       };
@@ -229,19 +293,31 @@ actor Treasury {
 
     if (not isDevMode) {
       // Fire-and-forget top-up and dev fee — don't block the caller
-      let lotteryShare  = cycles10 * 60 / 100;
-      let treasuryShare = cycles10 - lotteryShare;
+      let lotteryShare  = cycles10 * 45 / 100;
+      let frontendShare = cycles10 * 20 / 100;
+      let treasuryShare = cycles10 - lotteryShare - frontendShare;
       let lp = lotteryPrincipal;
+      let fp = frontendPrincipal;
       ignore async {
         switch lp {
           case (?lp) {
-            await topUpCanister(cmcLotteryAccountId,  lp, lotteryShare);
-            await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), treasuryShare);
+            let _ = await topUpCanister(cmcLotteryAccountId,  lp, lotteryShare);
           };
           case null {
-            await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), cycles10);
+            lastCmcError := "Lottery canister not configured; sending lottery share to treasury";
           };
         };
+        switch fp {
+          case (?fp) {
+            let _ = await topUpCanister(cmcFrontendAccountId, fp, frontendShare);
+          };
+          case null {
+            lastCmcError := "Frontend canister not configured; sending frontend share to treasury";
+          };
+        };
+        let fallbackLottery : Nat64 = switch lp { case (?_) 0; case null lotteryShare };
+        let fallbackFrontend : Nat64 = switch fp { case (?_) 0; case null frontendShare };
+        let _ = await topUpCanister(cmcTreasuryAccountId, Principal.fromActor(Treasury), treasuryShare + fallbackLottery + fallbackFrontend);
         if (Nat64.toNat(dev2) > LEDGER_FEE) {
           let _ = await ledger.icrc1_transfer({
             to              = { owner = Principal.fromText(devPrincipal); subaccount = null };
@@ -275,9 +351,13 @@ actor Treasury {
     mediumWinner : ?Principal,
     largeWinner  : ?Principal,
   ) : async Result.Result<SettleOk, Text> {
+    lastSettleCyclesBefore := Cycles.balance();
     assertLottery(caller);
 
-    if (dailyPool == 0) return #ok({ amountWon = 0; blockIndex = 0 });
+    if (dailyPool == 0) {
+      lastSettleCyclesAfter := Cycles.balance();
+      return #ok({ amountWon = 0; blockIndex = 0 });
+    };
 
     let dp = dailyPool;
     dailyPool := 0;
@@ -287,12 +367,17 @@ actor Treasury {
       switch smallWinner  { case (?w) { let s = smallPool;  smallPool  := 0; record(w, s, "Small Mystery (dev mode)") };  case null {} };
       switch mediumWinner { case (?w) { let m = mediumPool; mediumPool := 0; record(w, m, "Medium Mystery (dev mode)") }; case null {} };
       switch largeWinner  { case (?w) { let l = largePool;  largePool  := 0; record(w, l, "Large Mystery (dev mode)") };  case null {} };
+      lastSettleCyclesAfter := Cycles.balance();
       return #ok({ amountWon = dp; blockIndex = 0 });
     };
 
     // ── Daily winner ──────────────────────────────────────────────────────────
-    let winNet = if (Nat64.toNat(dp) > LEDGER_FEE) Nat64.toNat(dp) - LEDGER_FEE else 0;
-    if (winNet == 0) return #err("Daily pool too small to cover fee");
+    let dpNat = Nat64.toNat(dp);
+    let winNet = if (dpNat > LEDGER_FEE) Nat.sub(dpNat, LEDGER_FEE) else 0;
+    if (winNet == 0) {
+      lastSettleCyclesAfter := Cycles.balance();
+      return #err("Daily pool too small to cover fee");
+    };
 
     let winRes = await ledger.icrc1_transfer({
       to              = { owner = dailyWinner; subaccount = null };
@@ -306,6 +391,7 @@ actor Treasury {
       case (#Ok(bi)) Nat64.fromNat(bi);
       case (#Err(e)) {
         dailyPool += dp;
+        lastSettleCyclesAfter := Cycles.balance();
         return #err("Daily transfer failed: " # transferErrText(e));
       };
     };
@@ -315,14 +401,7 @@ actor Treasury {
     switch smallWinner {
       case (?w) {
         let amt = smallPool;
-        smallPool := 0;
-        if (Nat64.toNat(amt) > LEDGER_FEE) {
-          let _ = await ledger.icrc1_transfer({
-            to = { owner = w; subaccount = null }; amount = Nat64.toNat(amt) - LEDGER_FEE;
-            fee = ?LEDGER_FEE; memo = null; from_subaccount = null; created_at_time = null;
-          });
-          record(w, amt, "Small Mystery Prize");
-        };
+        if (await payPrize(w, amt, "Small Mystery Prize")) smallPool := 0;
       };
       case null {};
     };
@@ -331,14 +410,7 @@ actor Treasury {
     switch mediumWinner {
       case (?w) {
         let amt = mediumPool;
-        mediumPool := 0;
-        if (Nat64.toNat(amt) > LEDGER_FEE) {
-          let _ = await ledger.icrc1_transfer({
-            to = { owner = w; subaccount = null }; amount = Nat64.toNat(amt) - LEDGER_FEE;
-            fee = ?LEDGER_FEE; memo = null; from_subaccount = null; created_at_time = null;
-          });
-          record(w, amt, "Medium Mystery Prize");
-        };
+        if (await payPrize(w, amt, "Medium Mystery Prize")) mediumPool := 0;
       };
       case null {};
     };
@@ -347,18 +419,12 @@ actor Treasury {
     switch largeWinner {
       case (?w) {
         let amt = largePool;
-        largePool := 0;
-        if (Nat64.toNat(amt) > LEDGER_FEE) {
-          let _ = await ledger.icrc1_transfer({
-            to = { owner = w; subaccount = null }; amount = Nat64.toNat(amt) - LEDGER_FEE;
-            fee = ?LEDGER_FEE; memo = null; from_subaccount = null; created_at_time = null;
-          });
-          record(w, amt, "Large Mystery Prize");
-        };
+        if (await payPrize(w, amt, "Large Mystery Prize")) largePool := 0;
       };
       case null {};
     };
 
+    lastSettleCyclesAfter := Cycles.balance();
     #ok({ amountWon = Nat64.fromNat(winNet); blockIndex })
   };
 
@@ -374,12 +440,46 @@ actor Treasury {
     }
   };
 
+  func payPrize(to : Principal, amount : Nat64, note : Text) : async Bool {
+    let amountNat = Nat64.toNat(amount);
+    if (amountNat <= LEDGER_FEE) {
+      lastPayoutError := note # " too small to cover fee";
+      lastPayoutAt := Time.now();
+      lastPayoutNote := note;
+      return false;
+    };
+
+    let res = await ledger.icrc1_transfer({
+      to              = { owner = to; subaccount = null };
+      amount          = Nat.sub(amountNat, LEDGER_FEE);
+      fee             = ?LEDGER_FEE;
+      memo            = null;
+      from_subaccount = null;
+      created_at_time = null;
+    });
+    switch res {
+      case (#Ok(_)) {
+        lastPayoutError := "ok";
+        lastPayoutAt := Time.now();
+        lastPayoutNote := note;
+        record(to, amount, note);
+        true
+      };
+      case (#Err(e)) {
+        lastPayoutError := note # " failed: " # transferErrText(e);
+        lastPayoutAt := Time.now();
+        lastPayoutNote := note;
+        false
+      };
+    }
+  };
+
   func record(to : Principal, amount : Nat64, note : Text) {
     if (amount == 0) return;
     let rec : TransferRecord = { to; amount; blockIndex = 0; timestamp = Time.now(); note };
     let buf = Buffer.fromArray<TransferRecord>(transferHistory);
     buf.add(rec);
-    transferHistory := Buffer.toArray(buf);
+    transferHistory := keepLast<TransferRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
   };
 
   func recordDev(amount : Nat64) {
@@ -398,7 +498,17 @@ actor Treasury {
     };
     let buf = Buffer.fromArray<TransferRecord>(transferHistory);
     buf.add(rec);
-    transferHistory := Buffer.toArray(buf);
+    transferHistory := keepLast<TransferRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);
+  };
+
+  func keepLast<T>(arr : [T], max : Nat) : [T] {
+    if (arr.size() <= max) return arr;
+    let start = Int.abs(Int.abs(arr.size()) - Int.abs(max));
+    Array.tabulate<T>(max, func(i) { arr[start + i] })
+  };
+
+  func cyclesDelta(before : Nat, after : Nat) : Int {
+    if (after >= before) Int.abs(after - before) else -Int.abs(before - after)
   };
 
   // ── Queries ────────────────────────────────────────────────────────────────
@@ -416,6 +526,47 @@ actor Treasury {
   };
 
   public query func getLastCmcError() : async Text { lastCmcError };
+
+  public query func getCyclesHealth() : async CyclesHealth {
+    {
+      balance = Cycles.balance();
+      lastCmcError;
+      lastTopUpAt;
+      lastTopUpAmount;
+      lastSettleCyclesBefore;
+      lastSettleCyclesAfter;
+      lastSettleCyclesDelta = cyclesDelta(lastSettleCyclesBefore, lastSettleCyclesAfter);
+      lotteryConfigured = switch lotteryPrincipal { case (?_) true; case null false };
+      frontendConfigured = switch frontendPrincipal { case (?_) true; case null false };
+      historySize = transferHistory.size();
+      maxHistorySize = MAX_TRANSFER_HISTORY;
+    }
+  };
+
+  public shared func getTreasuryAccounting() : async TreasuryAccounting {
+    let balance = await ledger.icrc1_balance_of({
+      owner = Principal.fromActor(Treasury);
+      subaccount = null;
+    });
+    let totalPools = Nat64.toNat(dailyPool) + Nat64.toNat(smallPool) + Nat64.toNat(mediumPool) + Nat64.toNat(largePool);
+    {
+      ledgerBalance = balance;
+      totalPools;
+      unallocatedBalance = if (balance >= totalPools) Nat.sub(balance, totalPools) else 0;
+      poolDeficit = if (totalPools > balance) Nat.sub(totalPools, balance) else 0;
+      dailyPool;
+      smallPool;
+      mediumPool;
+      largePool;
+      minSmall = MIN_SMALL;
+      minMedium = MIN_MEDIUM;
+      minLarge = MIN_LARGE;
+      lastCmcError;
+      lastPayoutError;
+      lastPayoutAt;
+      lastPayoutNote;
+    }
+  };
 
 
   public query func getTransferHistory() : async [TransferRecord] {
