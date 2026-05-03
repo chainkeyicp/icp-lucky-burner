@@ -28,6 +28,7 @@ let identity      = null;
 let ticketQty     = 1;
 let winnersOffset = 0;
 let lastRoundId   = 0;
+let lastTopUpToastAt = 0n;
 const WINNERS_PAGE = 20;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -213,6 +214,7 @@ async function buyTickets() {
   btn.disabled = true;
   setMsg(msg, "", "");
   openProgressOverlay();
+  const topUpBaseline = await getTopUpBaseline();
 
   try {
     if (!IS_LOCAL && ledgerActor) {
@@ -244,17 +246,18 @@ async function buyTickets() {
 
     if ("ok" in res) {
       setStep("step-buy", "done", `${ticketQty} ticket${ticketQty > 1 ? "s" : ""} registered`);
-      setStep("step-cycles", "active");
-      // cycles top-up happens async inside the canister; brief pause for UX
-      await new Promise(r => setTimeout(r, 1200));
-      setStep("step-cycles", "done", "Cycles funded ✓");
-      await new Promise(r => setTimeout(r, 700));
+      setStep("step-cycles", "active", "Performing top-up request...");
+      // Top-up is finalized asynchronously by treasury; confirmation comes by polling telemetry.
+      await sleep(650);
+      setStep("step-cycles", "done", "Top-up request performed");
+      await sleep(550);
       closeProgressOverlay();
       toast(`Bought ${ticketQty} ticket${ticketQty > 1 ? "s" : ""}!`, "success");
       setMsg(msg, res.ok, "success");
       await refreshRound();
       await refreshLiveFeed();
       await refreshStats();
+      watchCyclesTopUp(topUpBaseline);
     } else {
       setStep("step-buy", "error", res.err);
       setTimeout(closeProgressOverlay, 2500);
@@ -265,6 +268,39 @@ async function buyTickets() {
     setMsg(msg, String(e), "error");
   }
   btn.disabled = false;
+}
+
+async function getTopUpBaseline() {
+  if (IS_LOCAL) return null;
+  try {
+    const h = await makeAnonActors().treasury.getCyclesHealth();
+    return BigInt(h.lastTopUpAt);
+  } catch {
+    return null;
+  }
+}
+
+async function watchCyclesTopUp(previousTopUpAt) {
+  if (IS_LOCAL || previousTopUpAt === null) return;
+  for (let i = 0; i < 12; i++) {
+    await sleep(2_000);
+    try {
+      const h = await makeAnonActors().treasury.getCyclesHealth();
+      const topUpAt = BigInt(h.lastTopUpAt);
+      if (topUpAt > previousTopUpAt && topUpAt > lastTopUpToastAt) {
+        lastTopUpToastAt = topUpAt;
+        if (h.lastCmcError === "ok") {
+          toast("Cycles top-up confirmed", "success");
+        } else {
+          toast(`Cycles top-up status: ${h.lastCmcError}`, "info");
+        }
+        await refreshStats();
+        return;
+      }
+    } catch (e) {
+      console.error("watchCyclesTopUp:", e);
+    }
+  }
 }
 
 // ── Anon actors (read-only, no login required) ────────────────────────────
@@ -916,6 +952,10 @@ function setText(id, text) {
 function setMsg(el, text, type) {
   el.textContent = text;
   el.className = `${el.className.split(" ")[0]}${type ? ` ${type}` : ""}`;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
