@@ -449,7 +449,7 @@ persistent actor Treasury {
         return #err("Daily transfer failed: " # transferErrText(e));
       };
     };
-    record(dailyWinner, dp, "Daily Prize");
+    recordWithBlock(dailyWinner, dp, blockIndex, "Daily Prize");
     trackOutgoing(dp);
 
     // ── Small mystery ─────────────────────────────────────────────────────────
@@ -513,11 +513,11 @@ persistent actor Treasury {
       created_at_time = null;
     });
     switch res {
-      case (#Ok(_)) {
+      case (#Ok(blockIndex)) {
         lastPayoutError := "ok";
         lastPayoutAt := Time.now();
         lastPayoutNote := note;
-        record(to, amount, note);
+        recordWithBlock(to, amount, Nat64.fromNat(blockIndex), note);
         trackOutgoing(amount);
         true
       };
@@ -531,8 +531,12 @@ persistent actor Treasury {
   };
 
   func record(to : Principal, amount : Nat64, note : Text) {
+    recordWithBlock(to, amount, 0, note);
+  };
+
+  func recordWithBlock(to : Principal, amount : Nat64, blockIndex : Nat64, note : Text) {
     if (amount == 0) return;
-    let rec : TransferRecord = { to; amount; blockIndex = 0; timestamp = Time.now(); note };
+    let rec : TransferRecord = { to; amount; blockIndex; timestamp = Time.now(); note };
     let buf = Buffer.fromArray<TransferRecord>(transferHistory);
     buf.add(rec);
     transferHistory := keepLast<TransferRecord>(Buffer.toArray(buf), MAX_TRANSFER_HISTORY);

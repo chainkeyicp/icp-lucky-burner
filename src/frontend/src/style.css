@@ -1015,7 +1015,7 @@ body {
 }
 .settlement-log-table {
   width: 100%;
-  min-width: 680px;
+  min-width: 560px;
   border-collapse: collapse;
 }
 .settlement-log-table th,

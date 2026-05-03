@@ -754,7 +754,7 @@ async function refreshTransparency() {
     treasury.getCyclesHealth(),
     treasury.getTreasuryAccounting(),
     lottery.getRoundStatus(),
-    lottery.getWinnerHistoryPaged(0, 1),
+    lottery.getWinnerHistoryPaged(0, 5),
     lottery.getRecentPurchases(),
     treasury.getTransferHistoryPaged(0, 12),
     treasury.getTopUpAuditHistoryPaged(0, 18),
@@ -828,7 +828,12 @@ async function refreshTransparency() {
   renderSettlementHealth(currentRoundId, lastWinner, payoutError, payoutNote);
   renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, latestPurchaseCount, rollingUsage, rollingFunding);
   if (transfers.status === "fulfilled") {
-    renderSettlementLog(transfers.value, topUpAudits.status === "fulfilled" ? topUpAudits.value : [], cmcSummary);
+    renderSettlementLog(
+      transfers.value,
+      topUpAudits.status === "fulfilled" ? topUpAudits.value : [],
+      winners.status === "fulfilled" ? winners.value : [],
+      cmcSummary
+    );
   }
 }
 
@@ -899,7 +904,7 @@ function renderAutonomyEstimate(visibleCycles, dailyCycleUse, lastTopUpAmount, l
   }
 }
 
-function renderSettlementLog(rows, topUpAudits = [], cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n }) {
+function renderSettlementLog(rows, topUpAudits = [], winners = [], cmcSummary = { lastCmcError: "none", lastTopUpAt: 0n }) {
   const tbody = document.getElementById("settlement-log-tbody");
   if (!tbody) return;
   const payoutEntries = rows
@@ -911,27 +916,44 @@ function renderSettlementLog(rows, topUpAudits = [], cmcSummary = { lastCmcError
     .sort((a, b) => a.timestamp === b.timestamp ? 0 : a.timestamp > b.timestamp ? -1 : 1)
     .slice(0, 10);
   if (entries.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No treasury movements yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No treasury movements yet</td></tr>`;
     return;
   }
   tbody.innerHTML = entries.map(entry => entry.kind === "topup"
     ? renderTopUpAuditRow(entry.record, cmcSummary)
-    : renderTransferAuditRow(entry.record)
+    : renderTransferAuditRow(entry.record, winners)
   ).join("");
 }
 
-function renderTransferAuditRow(r) {
-    const bi = Number(r.blockIndex);
+function renderTransferAuditRow(r, winners = []) {
+    const bi = resolveTransferBlockIndex(r, winners);
     const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
     });
     return `<tr>
       <td>${r.note}</td>
-      <td class="principal-short">${shortPrincipal(r.to.toText())}</td>
       <td>${e8sToIcp(r.amount)}</td>
       <td>${bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : `<span class="muted-text">pending</span>`}</td>
       <td>${date}</td>
     </tr>`;
+}
+
+function resolveTransferBlockIndex(record, winners) {
+  const direct = Number(record.blockIndex);
+  if (direct > 0) return direct;
+  if (record.note !== "Daily Prize") return 0;
+
+  const recipient = record.to.toText();
+  const rowTime = BigInt(record.timestamp);
+  const match = winners.find(w => {
+    if (w.winner.toText() !== recipient) return false;
+    if (Number(w.blockIndex) <= 0) return false;
+    const delta = rowTime > BigInt(w.timestamp)
+      ? rowTime - BigInt(w.timestamp)
+      : BigInt(w.timestamp) - rowTime;
+    return delta < 300_000_000_000n;
+  });
+  return match ? Number(match.blockIndex) : 0;
 }
 
 function renderTopUpAuditRow(r, cmcSummary) {
@@ -945,8 +967,7 @@ function renderTopUpAuditRow(r, cmcSummary) {
     ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>`
     : `<span class="muted-text">no block</span>`;
   return `<tr>
-    <td>Cycles top-up</td>
-    <td class="principal-short">${r.canisterName}</td>
+    <td>Cycles top-up: ${r.canisterName}</td>
     <td>${e8sToIcp(r.amount)}</td>
     <td><span class="topup-block-status">${block}${statusBadge}</span></td>
     <td>${date}</td>
