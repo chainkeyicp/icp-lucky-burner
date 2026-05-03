@@ -294,8 +294,12 @@ async function buyTickets() {
 async function getTopUpBaseline() {
   if (IS_LOCAL) return null;
   try {
-    const h = await makeAnonActors().treasury.getCyclesHealth();
-    return BigInt(h.lastTopUpAt);
+    const rows = await makeAnonActors().treasury.getTopUpAuditHistoryPaged(0, 12);
+    const newest = rows.reduce((max, r) => {
+      const ts = BigInt(r.timestamp);
+      return ts > max ? ts : max;
+    }, 0n);
+    return { newest, count: rows.length };
   } catch {
     return null;
   }
@@ -360,20 +364,33 @@ function renderPurchaseReceipt(purchasedQty, message) {
   el.classList.remove("hidden");
 }
 
-async function watchCyclesTopUp(previousTopUpAt) {
-  if (IS_LOCAL || previousTopUpAt === null) return;
+async function watchCyclesTopUp(topUpBaseline) {
+  if (IS_LOCAL || topUpBaseline === null) return;
   for (let i = 0; i < 12; i++) {
     await sleep(2_000);
     try {
-      const h = await makeAnonActors().treasury.getCyclesHealth();
-      const topUpAt = BigInt(h.lastTopUpAt);
-      if (topUpAt > previousTopUpAt && topUpAt > lastTopUpToastAt) {
-        lastTopUpToastAt = topUpAt;
-        if (h.lastCmcError === "ok") {
-          toast("Cycles top-up confirmed", "success");
-        } else {
-          toast(`Cycles top-up status: ${h.lastCmcError}`, "info");
-        }
+      const { treasury } = makeAnonActors();
+      const rows = await treasury.getTopUpAuditHistoryPaged(0, 12);
+      const newRows = rows.filter(r => BigInt(r.timestamp) > topUpBaseline.newest);
+      const newest = newRows.reduce((max, r) => {
+        const ts = BigInt(r.timestamp);
+        return ts > max ? ts : max;
+      }, 0n);
+      if (newest > 0n && newest <= lastTopUpToastAt) return;
+
+      const failed = newRows.find(r => r.status === "failed");
+      if (failed) {
+        lastTopUpToastAt = newest;
+        toast(`Cycles top-up failed: ${failed.canisterName}`, "info");
+        await refreshStats();
+        return;
+      }
+
+      const performed = newRows.filter(r => r.status === "performed");
+      const names = new Set(performed.map(r => r.canisterName));
+      if (names.has("Lottery") && names.has("Frontend") && names.has("Treasury")) {
+        lastTopUpToastAt = newest;
+        toast("Cycles top-up confirmed for all canisters", "success");
         await refreshStats();
         return;
       }
