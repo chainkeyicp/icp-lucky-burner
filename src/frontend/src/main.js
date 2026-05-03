@@ -62,12 +62,14 @@ async function initAsync() {
   }
 
   refreshLiveFeed();
+  refreshLastWinner();
   refreshStats();
   if (activePage() === "rules") refreshTransparency();
 
   setInterval(async () => {
     await refreshRound();
     await refreshLiveFeed();
+    await refreshLastWinner();
     await refreshStats();
     if (activePage() === "rules") await refreshTransparency();
   }, 30_000);
@@ -145,6 +147,7 @@ function setupNav() {
       target.classList.remove("hidden");
       target.classList.add("active");
       if (page === "winners") refreshWinners();
+      if (page === "lottery") refreshLastWinner();
       if (page === "wallet") refreshMyHistory();
       if (page === "rules") refreshTransparency();
     });
@@ -158,6 +161,12 @@ function activePage() {
 function setupGlobalActions() {
   document.querySelectorAll(".login-forward-btn").forEach(btn => {
     btn.addEventListener("click", () => document.getElementById("login-btn").click());
+  });
+  document.querySelectorAll("[data-page-jump]").forEach(link => {
+    link.addEventListener("click", e => {
+      e.preventDefault();
+      document.querySelector(`.nav-link[data-page="${link.dataset.pageJump}"]`)?.click();
+    });
   });
 
   const overlay = document.getElementById("modal-overlay");
@@ -813,6 +822,62 @@ async function refreshWinners() {
     }
     appendWinners(rows);
   } catch (e) { console.error(e); }
+}
+
+async function refreshLastWinner() {
+  const actor = lotteryActor ?? makeAnonActors().lottery;
+  const tbody = document.getElementById("last-winner-tbody");
+  if (!tbody) return;
+  try {
+    const rows = await actor.getWinnerHistoryPaged(0, 1);
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No draws yet</td></tr>`;
+      return;
+    }
+    renderLastWinner(rows[0]);
+  } catch (e) {
+    console.error("refreshLastWinner:", e);
+  }
+}
+
+function renderLastWinner(r) {
+  const tbody = document.getElementById("last-winner-tbody");
+  const date = new Date(Number(r.timestamp) / 1_000_000).toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+  const bi = Number(r.blockIndex);
+  const noTickets = r.winner.toText() === "aaaaa-aa" && Number(r.amountWon) === 0;
+  const mysteries = renderMysterySummary(r);
+
+  tbody.innerHTML = `
+    <tr class="${noTickets ? "" : "clickable"}">
+      <td>#${r.roundId}</td>
+      <td class="principal-short">${noTickets ? `<span class="muted-text">No tickets</span>` : shortPrincipal(r.winner.toText())}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : e8sToIcp(r.amountWon)}</td>
+      <td>${mysteries}</td>
+      <td>${noTickets ? `<span class="muted-text">-</span>` : bi > 0 ? `<a class="tx-link" href="${EXPLORER_BASE}${bi}" target="_blank">#${bi}</a>` : window._isDevMode ? "dev" : "pending"}</td>
+      <td>${date}</td>
+    </tr>
+  `;
+  const tr = tbody.querySelector("tr");
+  if (!noTickets) tr.addEventListener("click", e => {
+    if (e.target.tagName === "A") return;
+    showWinnerModal(r);
+  });
+}
+
+function renderMysterySummary(r) {
+  const items = [];
+  if (r.smallWinner.length > 0) {
+    items.push(`<span class="mystery-pill small">Small ${e8sToIcp(r.smallAmt)} -> ${shortPrincipal(r.smallWinner[0].toText())}</span>`);
+  }
+  if (r.mediumWinner.length > 0) {
+    items.push(`<span class="mystery-pill medium">Medium ${e8sToIcp(r.mediumAmt)} -> ${shortPrincipal(r.mediumWinner[0].toText())}</span>`);
+  }
+  if (r.largeWinner.length > 0) {
+    items.push(`<span class="mystery-pill large">Large ${e8sToIcp(r.largeAmt)} -> ${shortPrincipal(r.largeWinner[0].toText())}</span>`);
+  }
+  return items.length > 0 ? `<div class="mystery-pill-list">${items.join("")}</div>` : `<span class="muted-text">-</span>`;
 }
 
 document.getElementById("load-more-winners").addEventListener("click", async () => {
